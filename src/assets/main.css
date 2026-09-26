@@ -1190,3 +1190,61 @@ button {
 
   font-size: 11px;
 }
+/* --------------------------------------------------
+   V0.9 - FAHRZEUGSTATUS
+-------------------------------------------------- */
+
+.fahrzeugstatus-text {
+  display: flex;
+  flex-direction: column;
+
+  gap: 3px;
+}
+
+.fahrzeugstatus-text span {
+  margin: 0;
+}
+
+.fahrzeugstatus-text small {
+  color: #718c9e;
+  font-size: 9px;
+}
+
+.status-7 {
+  background: #7a55bd;
+}
+
+.status-8 {
+  background: #84549c;
+}
+
+.ereigniszeile.fahrzeug {
+  color: #a8cde2;
+}
+
+.einsatz .einsatzstatus.abgeschlossen {
+  background: #315443;
+  color: #9de1bd;
+}
+/* --------------------------------------------------
+   V0.10 - LAGEKARTE
+-------------------------------------------------- */
+
+.karten-panel {
+  grid-column: 1 / -1;
+
+  min-height: 490px;
+}
+
+.karten-status {
+  padding: 4px 8px;
+
+  background: #273945;
+  color: #86adbf !important;
+
+  border: 1px solid #3e5563;
+  border-radius: 4px;
+
+  font-size: 10px !important;
+  font-weight: 600;
+}

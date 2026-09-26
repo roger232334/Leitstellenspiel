@@ -8,7 +8,9 @@ import {
 } from 'vue'
 
 import { notrufSzenarien } from './data/notrufSzenarien.js'
+import { routeBerechnen } from './services/routing.js'
 
+import LeitstellenKarte from './components/LeitstellenKarte.vue'
 // --------------------------------------------------
 // UHRZEIT
 // --------------------------------------------------
@@ -16,38 +18,42 @@ import { notrufSzenarien } from './data/notrufSzenarien.js'
 const uhrzeit = ref('')
 
 function aktualisiereUhrzeit() {
-  uhrzeit.value = new Date().toLocaleTimeString(
-    'de-DE',
-    {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    },
-  )
+  uhrzeit.value = new Date().toLocaleTimeString('de-DE', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
 
+  // Laufendes Notrufgespräch
   if (notrufDialog.value) {
     notrufSekunden.value++
   }
 
+  // Eingehender, noch nicht angenommener Notruf
   if (eingehenderNotruf.value) {
     klingelSekunden.value++
 
-    if (
-      klingelSekunden.value >=
-      ANRUF_TIMEOUT
-    ) {
+    if (klingelSekunden.value >= ANRUF_TIMEOUT) {
       notrufVerpasst()
     }
   }
 }
 
 let timer
+let fahrzeugTimer
 
 onMounted(() => {
   aktualisiereUhrzeit()
 
+  // Uhr und Notruf-Timer
   timer = setInterval(
     aktualisiereUhrzeit,
+    1000,
+  )
+
+  // Eigener Fahrzeug-Timer
+  fahrzeugTimer = setInterval(
+    aktualisiereFahrzeugEinsaetze,
     1000,
   )
 
@@ -61,6 +67,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearInterval(timer)
+  clearInterval(fahrzeugTimer)
 
   stoppeKlingelTon()
 
@@ -79,24 +86,71 @@ const fahrzeuge = ref([
     funkrufname: 'RK Regensburg 71/1',
     typ: 'RTW',
     status: 2,
+    einsatzId: null,
+    naechsterStatusIn: 0,
+
+    position: {
+      lat: 49.0148,
+      lng: 12.0825,
+    },
+
+    route: [],
+    routeSchritt: 0,
+    routeSchritte: 0,
   },
+
   {
     id: 2,
     funkrufname: 'RK Regensburg 71/2',
     typ: 'RTW',
     status: 2,
+    einsatzId: null,
+    naechsterStatusIn: 0,
+
+    position: {
+      lat: 49.0146,
+      lng: 12.083,
+    },
+
+    route: [],
+    routeSchritt: 0,
+    routeSchritte: 0,
   },
+
   {
     id: 3,
     funkrufname: 'RK Regensburg 76/1',
     typ: 'NEF',
     status: 1,
+    einsatzId: null,
+    naechsterStatusIn: 0,
+
+    position: {
+      lat: 49.0128,
+      lng: 12.1035,
+    },
+
+    route: [],
+    routeSchritt: 0,
+    routeSchritte: 0,
   },
+
   {
     id: 4,
     funkrufname: 'Florian Regensburg 40/1',
     typ: 'HLF',
     status: 2,
+    einsatzId: null,
+    naechsterStatusIn: 0,
+
+    position: {
+      lat: 49.0205,
+      lng: 12.112,
+    },
+
+    route: [],
+    routeSchritt: 0,
+    routeSchritte: 0,
   },
 ])
 
@@ -106,27 +160,77 @@ const fahrzeuge = ref([
 
 const einsaetze = ref([
   {
-    id: 1001,
-    meldung: 'Bewusstlose Person',
-    ort: 'Musterstraße 12',
-    stichwort: 'RD2',
-    bemerkung: 'Person nicht ansprechbar, Atmung vorhanden.',
-    status: 'offen',
-    fahrzeuge: [],
+  id: 1001,
+  meldung: 'Bewusstlose Person',
+  ort: 'Musterstraße 12',
+  stichwort: 'RD2',
+  bemerkung: 'Person nicht ansprechbar, Atmung vorhanden.',
+  status: 'offen',
+  fahrzeuge: [],
+
+  position: {
+    lat: 49.0255,
+    lng: 12.0955,
   },
-  {
-    id: 1002,
-    meldung: 'Verkehrsunfall',
-    ort: 'Hauptstraße 48',
-    stichwort: 'THL 1',
-    bemerkung: 'Zwei Pkw beteiligt. Lage noch unklar.',
-    status: 'offen',
-    fahrzeuge: [],
+},
+ {
+  id: 1002,
+  meldung: 'Verkehrsunfall',
+  ort: 'Hauptstraße 48',
+  stichwort: 'THL 1',
+  bemerkung: 'Zwei Pkw beteiligt. Lage noch unklar.',
+  status: 'offen',
+  fahrzeuge: [],
+
+  position: {
+    lat: 49.007,
+    lng: 12.118,
   },
+},
 ])
 
 const ausgewaehlterEinsatzId = ref(1001)
+const szenarioPositionen = {
+  1: {
+    lat: 49.0185,
+    lng: 12.073,
+  },
 
+  2: {
+    lat: 49.008,
+    lng: 12.116,
+  },
+
+  3: {
+    lat: 49.0045,
+    lng: 12.099,
+  },
+
+  4: {
+    lat: 49.033,
+    lng: 12.102,
+  },
+
+  5: {
+    lat: 49.023,
+    lng: 12.12,
+  },
+
+  6: {
+    lat: 49.006,
+    lng: 12.091,
+  },
+
+  7: {
+    lat: 48.995,
+    lng: 12.087,
+  },
+
+  8: {
+    lat: 49.016,
+    lng: 12.125,
+  },
+}
 const ausgewaehlterEinsatz = computed(() => {
   return einsaetze.value.find(
     (einsatz) => einsatz.id === ausgewaehlterEinsatzId.value,
@@ -577,15 +681,22 @@ function einsatzAusNotrufErstellen() {
 
   const neueId = naechsteEinsatzId()
 
-  einsaetze.value.push({
-    id: neueId,
-    meldung: notrufDaten.value.meldung.trim(),
-    ort: adresseTeile.join(', '),
-    stichwort: notrufDaten.value.stichwort.trim(),
-    bemerkung: bemerkungen.join('\n'),
-    status: 'offen',
-    fahrzeuge: [],
-  })
+ const szenarioId =
+  aktuellesSzenario.value?.id
+
+const position =
+  szenarioPositionen[szenarioId] ?? null
+
+einsaetze.value.push({
+  id: neueId,
+  meldung: notrufDaten.value.meldung.trim(),
+  ort: adresseTeile.join(', '),
+  stichwort: notrufDaten.value.stichwort.trim(),
+  bemerkung: bemerkungen.join('\n'),
+  status: 'offen',
+  fahrzeuge: [],
+  position,
+})
 
   ausgewaehlterEinsatzId.value = neueId
 
@@ -767,6 +878,251 @@ function istFahrzeugDeaktiviert(fahrzeug) {
 }
 
 // --------------------------------------------------
+// FAHRZEUG-LEBENSZYKLUS
+// --------------------------------------------------
+
+function zufallsSekunden(min, max) {
+  return (
+    Math.floor(Math.random() * (max - min + 1)) +
+    min
+  )
+}
+
+function aktualisiereFahrzeugEinsaetze() {
+  fahrzeuge.value.forEach((fahrzeug) => {
+    if (fahrzeug.einsatzId === null) {
+      return
+    }
+
+    // STATUS 3: Fahrt zum Einsatzort
+    if (
+      fahrzeug.status === 3 &&
+      fahrzeug.route.length > 0
+    ) {
+      fahrzeug.routeSchritt++
+
+      const fortschritt =
+        fahrzeug.routeSchritt /
+        fahrzeug.routeSchritte
+
+      const index = Math.min(
+        fahrzeug.route.length - 1,
+        Math.floor(
+          fortschritt *
+            (fahrzeug.route.length - 1),
+        ),
+      )
+
+      const punkt = fahrzeug.route[index]
+
+      fahrzeug.position = {
+        lat: punkt.lat,
+        lng: punkt.lng,
+      }
+
+      fahrzeug.naechsterStatusIn =
+        Math.max(
+          0,
+          fahrzeug.routeSchritte -
+            fahrzeug.routeSchritt,
+        )
+
+      // Einsatzort erreicht
+      if (
+        fahrzeug.routeSchritt >=
+        fahrzeug.routeSchritte
+      ) {
+        const letzterPunkt =
+          fahrzeug.route[
+            fahrzeug.route.length - 1
+          ]
+
+        fahrzeug.position = {
+          lat: letzterPunkt.lat,
+          lng: letzterPunkt.lng,
+        }
+
+        fahrzeug.route = []
+        fahrzeug.routeSchritt = 0
+        fahrzeug.routeSchritte = 0
+
+        fahrzeug.status = 4
+
+        fahrzeug.naechsterStatusIn =
+          zufallsSekunden(15, 30)
+
+        protokolliere(
+          `${fahrzeug.funkrufname} meldet Status 4 – Einsatzstelle erreicht`,
+          'fahrzeug',
+        )
+      }
+
+      return
+    }
+
+    // STATUS 3 ohne verfügbare Route:
+    // normaler Countdown als Fallback
+    if (
+      fahrzeug.status === 3 &&
+      fahrzeug.route.length === 0
+    ) {
+      if (fahrzeug.naechsterStatusIn > 0) {
+        fahrzeug.naechsterStatusIn--
+      }
+
+      if (fahrzeug.naechsterStatusIn <= 0) {
+        fahrzeug.status = 4
+
+        fahrzeug.naechsterStatusIn =
+          zufallsSekunden(15, 30)
+
+        protokolliere(
+          `${fahrzeug.funkrufname} meldet Status 4 – Einsatzstelle erreicht`,
+          'fahrzeug',
+        )
+      }
+
+      return
+    }
+
+    // Alle anderen Statusphasen
+    if (fahrzeug.naechsterStatusIn > 0) {
+      fahrzeug.naechsterStatusIn--
+    }
+
+    if (fahrzeug.naechsterStatusIn <= 0) {
+      naechsteFahrzeugPhase(fahrzeug)
+    }
+  })
+}
+
+function naechsteFahrzeugPhase(fahrzeug) {
+  const einsatzId = fahrzeug.einsatzId
+
+  // Status 3 -> Status 4
+  if (fahrzeug.status === 3) {
+    fahrzeug.status = 4
+
+    // Zeit am Einsatzort
+    fahrzeug.naechsterStatusIn =
+      zufallsSekunden(15, 30)
+
+    protokolliere(
+      `${fahrzeug.funkrufname} meldet Status 4 – Einsatzstelle erreicht`,
+      'fahrzeug',
+    )
+
+    return
+  }
+
+  // RTW: Status 4 -> Status 7
+  if (
+    fahrzeug.status === 4 &&
+    fahrzeug.typ === 'RTW'
+  ) {
+    fahrzeug.status = 7
+
+    // Transportzeit
+    fahrzeug.naechsterStatusIn =
+      zufallsSekunden(12, 25)
+
+    protokolliere(
+      `${fahrzeug.funkrufname} meldet Status 7 – Patient aufgenommen`,
+      'fahrzeug',
+    )
+
+    return
+  }
+
+  // NEF / Feuerwehr:
+  // Einsatz nach Status 4 beendet
+  if (fahrzeug.status === 4) {
+    fahrzeugEinsatzBeenden(fahrzeug)
+    return
+  }
+
+  // RTW: Status 7 -> Status 8
+  if (fahrzeug.status === 7) {
+    fahrzeug.status = 8
+
+    // Übergabe am Transportziel
+    fahrzeug.naechsterStatusIn =
+      zufallsSekunden(10, 20)
+
+    protokolliere(
+      `${fahrzeug.funkrufname} meldet Status 8 – Transportziel erreicht`,
+      'fahrzeug',
+    )
+
+    return
+  }
+
+  // RTW nach Status 8 wieder frei
+  if (fahrzeug.status === 8) {
+    fahrzeugEinsatzBeenden(fahrzeug)
+    return
+  }
+
+  console.warn(
+    `Unbekannter Fahrzeugstatus bei ${fahrzeug.funkrufname}:`,
+    fahrzeug.status,
+    einsatzId,
+  )
+}
+
+function fahrzeugEinsatzBeenden(fahrzeug) {
+  const einsatzId = fahrzeug.einsatzId
+
+  const einsatz = einsaetze.value.find(
+    (eintrag) => eintrag.id === einsatzId,
+  )
+
+  // RD-Fahrzeuge werden über Funk einsatzbereit.
+  // Feuerwehr kehrt auf Status 2 zurück.
+  if (
+    fahrzeug.typ === 'RTW' ||
+    fahrzeug.typ === 'NEF' ||
+    fahrzeug.typ === 'KTW'
+  ) {
+    fahrzeug.status = 1
+  } else {
+    fahrzeug.status = 2
+  }
+
+  fahrzeug.einsatzId = null
+  fahrzeug.naechsterStatusIn = 0
+
+  protokolliere(
+    `${fahrzeug.funkrufname} wieder einsatzbereit – Status ${fahrzeug.status}`,
+    'fahrzeug',
+  )
+
+  if (!einsatz) {
+    return
+  }
+
+  // Fahrzeug aus den aktuell gebundenen
+  // Einsatzmitteln entfernen
+  einsatz.fahrzeuge =
+    einsatz.fahrzeuge.filter(
+      (id) => id !== fahrzeug.id,
+    )
+
+  // Wenn kein Fahrzeug mehr an den Einsatz
+  // gebunden ist, gilt er als beendet.
+  if (
+    einsatz.status === 'alarmiert' &&
+    einsatz.fahrzeuge.length === 0
+  ) {
+    einsatz.status = 'abgeschlossen'
+
+    protokolliere(
+      `Einsatz #${einsatz.id} abgeschlossen`,
+      'erfolg',
+    )
+  }
+}
+// --------------------------------------------------
 // ALARMIERUNG
 // --------------------------------------------------
 
@@ -797,6 +1153,11 @@ function alarmieren() {
   alarmierteFahrzeuge.forEach(
     (fahrzeug) => {
       fahrzeug.status = 3
+      fahrzeug.einsatzId = einsatz.id
+
+      // Testweise kurze Anfahrtszeit
+      fahrzeug.naechsterStatusIn = 5
+  
     },
   )
 
@@ -822,12 +1183,22 @@ function statusText(status) {
   switch (status) {
     case 1:
       return 'Einsatzbereit über Funk'
+
     case 2:
       return 'Einsatzbereit auf Wache'
+
     case 3:
-      return 'Einsatz übernommen'
+      return 'Einsatz übernommen / Anfahrt'
+
     case 4:
       return 'Am Einsatzort'
+
+    case 7:
+      return 'Patient aufgenommen / Transport'
+
+    case 8:
+      return 'Am Transportziel'
+
     default:
       return 'Unbekannt'
   }
@@ -1154,20 +1525,47 @@ function statusText(status) {
             </div>
 
             <div class="fahrzeugstatus">
-              <span
-                class="statusnummer"
-                :class="
-                  'status-' + fahrzeug.status
-                "
-              >
-                {{ fahrzeug.status }}
-              </span>
+  <span
+    class="statusnummer"
+    :class="'status-' + fahrzeug.status"
+  >
+    {{ fahrzeug.status }}
+  </span>
 
-              {{ statusText(fahrzeug.status) }}
-            </div>
+  <div class="fahrzeugstatus-text">
+    <span>
+      {{ statusText(fahrzeug.status) }}
+    </span>
+
+    <small
+      v-if="
+        fahrzeug.einsatzId &&
+        fahrzeug.naechsterStatusIn > 0
+      "
+    >
+      Nächste Meldung in
+      {{ fahrzeug.naechsterStatusIn }} s
+    </small>
+  </div>
+</div>
           </div>
         </div>
       </section>
+      <!-- LAGEKARTE -->
+
+<section class="panel karten-panel">
+  <div class="panel-kopf">
+    <h2>Lagekarte</h2>
+
+    <span class="karten-status">
+      OpenStreetMap
+    </span>
+  </div>
+
+  <LeitstellenKarte
+    :fahrzeuge="fahrzeuge"
+  />
+</section>
     </main>
 
     <!-- SIMULIERTER NOTRUF -->
