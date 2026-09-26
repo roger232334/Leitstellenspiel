@@ -1,5 +1,11 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from 'vue'
+
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -8,18 +14,30 @@ const props = defineProps({
     type: Array,
     required: true,
   },
+
+  einsaetze: {
+    type: Array,
+    required: true,
+  },
+
+  ausgewaehlterEinsatzId: {
+    type: Number,
+    default: null,
+  },
 })
+
+const emit = defineEmits([
+  'einsatz-auswaehlen',
+])
 
 const kartenElement = ref(null)
 
 let karte = null
 let fahrzeugEbene = null
+let einsatzEbene = null
 
 // --------------------------------------------------
-// DEMO-WACHEN
-//
-// Die Positionen sind erstmal nur für unseren
-// Prototyp gedacht.
+// WACHEN
 // --------------------------------------------------
 
 const wachen = [
@@ -44,13 +62,8 @@ const wachen = [
 ]
 
 // --------------------------------------------------
-// DEMO-FAHRZEUGPOSITIONEN
-//
-// Momentan bleibt jedes Fahrzeug an seiner
-// Startposition. In einer späteren Version
-// bewegen wir sie über echte Straßen.
+// FARBEN
 // --------------------------------------------------
-
 
 function statusFarbe(status) {
   switch (status) {
@@ -77,18 +90,41 @@ function statusFarbe(status) {
   }
 }
 
+function einsatzFarbe(status) {
+  switch (status) {
+    case 'alarmiert':
+      return '#e0ad39'
+
+    case 'abgeschlossen':
+      return '#39b86e'
+
+    case 'offen':
+    default:
+      return '#db4b52'
+  }
+}
+
+// --------------------------------------------------
+// WACHEN ZEICHNEN
+// --------------------------------------------------
+
 function zeichneWachen() {
   wachen.forEach((wache) => {
-    const marker = L.circleMarker(wache.position, {
-      radius: 13,
-      color: '#dce5eb',
-      weight: 3,
-      fillColor:
-        wache.typ === 'Feuerwehr'
-          ? '#ba454b'
-          : '#357ca5',
-      fillOpacity: 0.9,
-    })
+    const marker = L.circleMarker(
+      wache.position,
+      {
+        radius: 13,
+        color: '#dce5eb',
+        weight: 3,
+
+        fillColor:
+          wache.typ === 'Feuerwehr'
+            ? '#ba454b'
+            : '#357ca5',
+
+        fillOpacity: 0.9,
+      },
+    )
 
     marker.bindTooltip(
       `
@@ -104,6 +140,10 @@ function zeichneWachen() {
   })
 }
 
+// --------------------------------------------------
+// FAHRZEUGE ZEICHNEN
+// --------------------------------------------------
+
 function zeichneFahrzeuge() {
   if (!fahrzeugEbene) {
     return
@@ -113,25 +153,27 @@ function zeichneFahrzeuge() {
 
   props.fahrzeuge.forEach((fahrzeug) => {
     if (!fahrzeug.position) {
-  return
-}
+      return
+    }
 
-const position = [
-  fahrzeug.position.lat,
-  fahrzeug.position.lng,
-]
+    const position = [
+      fahrzeug.position.lat,
+      fahrzeug.position.lng,
+    ]
 
-    const farbe = statusFarbe(
-      fahrzeug.status,
+    const farbe =
+      statusFarbe(fahrzeug.status)
+
+    const marker = L.circleMarker(
+      position,
+      {
+        radius: 8,
+        color: '#ffffff',
+        weight: 2,
+        fillColor: farbe,
+        fillOpacity: 1,
+      },
     )
-
-    const marker = L.circleMarker(position, {
-      radius: 8,
-      color: '#ffffff',
-      weight: 2,
-      fillColor: farbe,
-      fillOpacity: 1,
-    })
 
     marker.bindTooltip(
       `
@@ -148,10 +190,122 @@ const position = [
   })
 }
 
+// --------------------------------------------------
+// EINSÄTZE ZEICHNEN
+// --------------------------------------------------
+
+function zeichneEinsaetze() {
+  if (!einsatzEbene) {
+    return
+  }
+
+  einsatzEbene.clearLayers()
+
+  props.einsaetze.forEach((einsatz) => {
+    if (!einsatz.position) {
+      return
+    }
+
+    const position = [
+      einsatz.position.lat,
+      einsatz.position.lng,
+    ]
+
+    const istAusgewaehlt =
+      einsatz.id ===
+      props.ausgewaehlterEinsatzId
+
+    const marker = L.circleMarker(
+      position,
+      {
+        radius:
+          istAusgewaehlt
+            ? 13
+            : 10,
+
+        color:
+          istAusgewaehlt
+            ? '#ffffff'
+            : '#202b33',
+
+        weight:
+          istAusgewaehlt
+            ? 4
+            : 2,
+
+        fillColor:
+          einsatzFarbe(einsatz.status),
+
+        fillOpacity: 0.95,
+      },
+    )
+
+    marker.bindTooltip(
+      `
+        <strong>Einsatz #${einsatz.id}</strong><br>
+        ${einsatz.meldung}<br>
+        ${einsatz.ort}<br>
+        ${einsatz.stichwort || 'Kein Stichwort'}
+      `,
+      {
+        direction: 'top',
+      },
+    )
+
+    marker.on('click', () => {
+      emit(
+        'einsatz-auswaehlen',
+        einsatz.id,
+      )
+    })
+
+    marker.addTo(einsatzEbene)
+  })
+}
+
+// --------------------------------------------------
+// AUF EINSATZ ZENTRIEREN
+// --------------------------------------------------
+
+function zentriereAufEinsatz() {
+  if (!karte) {
+    return
+  }
+
+  const einsatz =
+    props.einsaetze.find(
+      (eintrag) =>
+        eintrag.id ===
+        props.ausgewaehlterEinsatzId,
+    )
+
+  if (!einsatz?.position) {
+    return
+  }
+
+  karte.flyTo(
+    [
+      einsatz.position.lat,
+      einsatz.position.lng,
+    ],
+    15,
+    {
+      duration: 0.7,
+    },
+  )
+}
+
+// --------------------------------------------------
+// KARTE STARTEN
+// --------------------------------------------------
+
 onMounted(() => {
-  karte = L.map(kartenElement.value, {
-    zoomControl: true,
-  }).setView(
+  karte = L.map(
+    kartenElement.value,
+    {
+      zoomControl: true,
+    },
+  ).setView(
     [49.0134, 12.1016],
     13,
   )
@@ -166,10 +320,14 @@ onMounted(() => {
     },
   ).addTo(karte)
 
+  einsatzEbene =
+    L.layerGroup().addTo(karte)
+
   fahrzeugEbene =
     L.layerGroup().addTo(karte)
 
   zeichneWachen()
+  zeichneEinsaetze()
   zeichneFahrzeuge()
 
   setTimeout(() => {
@@ -177,21 +335,82 @@ onMounted(() => {
   }, 100)
 })
 
+// --------------------------------------------------
+// FAHRZEUGE BEOBACHTEN
+// --------------------------------------------------
+
 watch(
   () =>
-    props.fahrzeuge.map((fahrzeug) => ({
-      id: fahrzeug.id,
-      status: fahrzeug.status,
-      lat: fahrzeug.position?.lat,
-      lng: fahrzeug.position?.lng,
-    })),
+    props.fahrzeuge.map(
+      (fahrzeug) => ({
+        id: fahrzeug.id,
+        status: fahrzeug.status,
+
+        lat:
+          fahrzeug.position?.lat,
+
+        lng:
+          fahrzeug.position?.lng,
+      }),
+    ),
+
   () => {
     zeichneFahrzeuge()
   },
+
   {
     deep: true,
   },
 )
+
+// --------------------------------------------------
+// EINSÄTZE BEOBACHTEN
+// --------------------------------------------------
+
+watch(
+  () =>
+    props.einsaetze.map(
+      (einsatz) => ({
+        id: einsatz.id,
+        status: einsatz.status,
+
+        lat:
+          einsatz.position?.lat,
+
+        lng:
+          einsatz.position?.lng,
+
+        meldung:
+          einsatz.meldung,
+      }),
+    ),
+
+  () => {
+    zeichneEinsaetze()
+  },
+
+  {
+    deep: true,
+  },
+)
+
+// --------------------------------------------------
+// AUSGEWÄHLTEN EINSATZ BEOBACHTEN
+// --------------------------------------------------
+
+watch(
+  () =>
+    props.ausgewaehlterEinsatzId,
+
+  () => {
+    zeichneEinsaetze()
+    zentriereAufEinsatz()
+  },
+)
+
+// --------------------------------------------------
+// AUFRÄUMEN
+// --------------------------------------------------
 
 onBeforeUnmount(() => {
   if (karte) {
@@ -199,7 +418,6 @@ onBeforeUnmount(() => {
     karte = null
   }
 })
-
 </script>
 
 <template>
@@ -210,7 +428,7 @@ onBeforeUnmount(() => {
     ></div>
 
     <div class="karten-legende">
-      <strong>Fahrzeugstatus</strong>
+      <strong>Fahrzeuge</strong>
 
       <div>
         <span class="legende status1"></span>
@@ -232,14 +450,23 @@ onBeforeUnmount(() => {
         Status 4
       </div>
 
+      <div class="legenden-trenner"></div>
+
+      <strong>Einsätze</strong>
+
       <div>
-        <span class="legende status7"></span>
-        Status 7
+        <span class="legende einsatz-offen"></span>
+        Offen
       </div>
 
       <div>
-        <span class="legende status8"></span>
-        Status 8
+        <span class="legende einsatz-alarmiert"></span>
+        Alarmiert
+      </div>
+
+      <div>
+        <span class="legende einsatz-abgeschlossen"></span>
+        Abgeschlossen
       </div>
     </div>
   </div>
@@ -271,7 +498,7 @@ onBeforeUnmount(() => {
 
   z-index: 1000;
 
-  min-width: 125px;
+  min-width: 140px;
 
   padding: 10px;
 
@@ -308,6 +535,8 @@ onBeforeUnmount(() => {
   width: 10px;
   height: 10px;
 
+  flex-shrink: 0;
+
   border-radius: 50%;
 }
 
@@ -327,11 +556,23 @@ onBeforeUnmount(() => {
   background: #db4b52;
 }
 
-.status7 {
-  background: #8b65cc;
+.einsatz-offen {
+  background: #db4b52;
 }
 
-.status8 {
-  background: #9b68ad;
+.einsatz-alarmiert {
+  background: #e0ad39;
+}
+
+.einsatz-abgeschlossen {
+  background: #39b86e;
+}
+
+.legenden-trenner {
+  height: 1px;
+
+  margin: 8px 0 !important;
+
+  background: #41515c;
 }
 </style>

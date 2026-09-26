@@ -9,6 +9,7 @@ import {
 
 import { notrufSzenarien } from './data/notrufSzenarien.js'
 import { routeBerechnen } from './services/routing.js'
+import { adresseGeocodieren } from './services/geocoding.js'
 
 import LeitstellenKarte from './components/LeitstellenKarte.vue'
 // --------------------------------------------------
@@ -267,6 +268,40 @@ const wartendesSzenario = ref(null)
 
 const ereignisse = ref([])
 const verpassteAnrufe = ref(0)
+const geocodierungLaeuft = ref(false)
+
+async function findeEinsatzPosition(
+  adresse,
+) {
+  const text = adresse.trim()
+
+  if (!text) {
+    return null
+  }
+
+  // Zuerst genau die eingegebene Adresse suchen
+  let treffer =
+    await adresseGeocodieren(text)
+
+  if (treffer) {
+    return treffer
+  }
+
+  // Für unseren aktuellen Regensburg-Prototyp:
+  // Falls nur Straße + Hausnummer eingegeben wurden,
+  // versuchen wir es nochmal mit Regensburg.
+  if (
+    !text.toLowerCase()
+      .includes('regensburg')
+  ) {
+    treffer =
+      await adresseGeocodieren(
+        `${text}, Regensburg, Deutschland`,
+      )
+  }
+
+  return treffer
+}
 
 const tonAktiv = ref(false)
 
@@ -629,7 +664,7 @@ async function frageSenden() {
   await scrollChatNachUnten()
 }
 
-function einsatzAusNotrufErstellen() {
+async function einsatzAusNotrufErstellen() {
   if (notrufDaten.value.meldung.trim() === '') {
     alert('Bitte ein Meldebild eingeben.')
     return
@@ -681,11 +716,45 @@ function einsatzAusNotrufErstellen() {
 
   const neueId = naechsteEinsatzId()
 
- const szenarioId =
+const szenarioId =
   aktuellesSzenario.value?.id
 
-const position =
-  szenarioPositionen[szenarioId] ?? null
+const suchadresse =
+  adresseTeile.join(', ')
+
+let geocode = null
+
+geocodierungLaeuft.value = true
+
+try {
+  geocode =
+    await findeEinsatzPosition(
+      suchadresse,
+    )
+} catch (fehler) {
+  console.error(
+    'Geocodingfehler:',
+    fehler,
+  )
+} finally {
+  geocodierungLaeuft.value = false
+}
+
+// Wenn die echte Adresse gefunden wurde:
+// echte Koordinaten benutzen.
+//
+// Falls nicht:
+// bisherige Szenario-Position als Fallback.
+const position = geocode
+  ? {
+      lat: geocode.lat,
+      lng: geocode.lng,
+    }
+  : (
+      szenarioPositionen[
+        szenarioId
+      ] ?? null
+    )
 
 einsaetze.value.push({
   id: neueId,
@@ -737,32 +806,91 @@ function neuerEinsatz() {
   neuerEinsatzDialog.value = true
 }
 
-function einsatzAnlegen() {
+async function einsatzAnlegen() {
   if (
     neuerEinsatzDaten.value.meldung.trim() === '' ||
     neuerEinsatzDaten.value.ort.trim() === ''
   ) {
-    alert('Bitte Meldebild und Einsatzort eingeben.')
+    alert(
+      'Bitte Meldebild und Einsatzort eingeben.',
+    )
+
     return
   }
 
-  const neueId = naechsteEinsatzId()
+  geocodierungLaeuft.value = true
+
+  let geocode = null
+
+  try {
+    geocode =
+      await findeEinsatzPosition(
+        neuerEinsatzDaten.value.ort,
+      )
+  } catch (fehler) {
+    console.error(
+      'Geocodingfehler:',
+      fehler,
+    )
+
+    protokolliere(
+      'Adresssuche nicht verfügbar – Einsatz wird ohne Kartenposition angelegt',
+      'warnung',
+    )
+  } finally {
+    geocodierungLaeuft.value = false
+  }
+
+  const neueId =
+    naechsteEinsatzId()
+
+  const position = geocode
+    ? {
+        lat: geocode.lat,
+        lng: geocode.lng,
+      }
+    : null
 
   einsaetze.value.push({
     id: neueId,
-    meldung: neuerEinsatzDaten.value.meldung,
-    ort: neuerEinsatzDaten.value.ort,
-    stichwort: neuerEinsatzDaten.value.stichwort,
-    bemerkung: neuerEinsatzDaten.value.bemerkung,
+
+    meldung:
+      neuerEinsatzDaten.value.meldung,
+
+    ort:
+      neuerEinsatzDaten.value.ort,
+
+    stichwort:
+      neuerEinsatzDaten.value.stichwort,
+
+    bemerkung:
+      neuerEinsatzDaten.value.bemerkung,
+
     status: 'offen',
     fahrzeuge: [],
+    position,
   })
 
-  ausgewaehlterEinsatzId.value = neueId
+  ausgewaehlterEinsatzId.value =
+    neueId
+
   protokolliere(
-  `Einsatz #${neueId} manuell eröffnet – ${neuerEinsatzDaten.value.meldung}`,
-  'einsatz',
-)
+    `Einsatz #${neueId} manuell eröffnet – ${neuerEinsatzDaten.value.meldung}`,
+    'einsatz',
+  )
+
+  if (geocode) {
+    protokolliere(
+      `Einsatz #${neueId}: Adresse gefunden – ${geocode.displayName}`,
+      'system',
+    )
+  } else {
+    protokolliere(
+      `Einsatz #${neueId}: Keine Kartenposition für "${neuerEinsatzDaten.value.ort}" gefunden`,
+      'warnung',
+    )
+  }
+
   neuerEinsatzDialog.value = false
 }
 
@@ -1612,9 +1740,12 @@ function statusText(status) {
     </span>
   </div>
 
-  <LeitstellenKarte
-    :fahrzeuge="fahrzeuge"
-  />
+ <LeitstellenKarte
+  :fahrzeuge="fahrzeuge"
+  :einsaetze="einsaetze"
+  :ausgewaehlter-einsatz-id="ausgewaehlterEinsatzId"
+  @einsatz-auswaehlen="einsatzAuswaehlen"
+/>
 </section>
     </main>
 
@@ -1787,11 +1918,16 @@ function statusText(status) {
           </button>
 
           <button
-            class="einsatz-erstellen"
-            @click="einsatzAusNotrufErstellen"
-          >
-            Einsatz aus Notruf erstellen
-          </button>
+  class="einsatz-erstellen"
+  :disabled="geocodierungLaeuft"
+  @click="einsatzAusNotrufErstellen"
+>
+  {{
+    geocodierungLaeuft
+      ? 'Adresse wird gesucht...'
+      : 'Einsatz aus Notruf erstellen'
+  }}
+</button>
         </div>
       </div>
     </div>
@@ -1873,12 +2009,17 @@ function statusText(status) {
             Abbrechen
           </button>
 
-          <button
-            class="speichernbutton"
-            @click="einsatzAnlegen"
-          >
-            Einsatz anlegen
-          </button>
+         <button
+  class="speichernbutton"
+  :disabled="geocodierungLaeuft"
+  @click="einsatzAnlegen"
+>
+  {{
+    geocodierungLaeuft
+      ? 'Adresse wird gesucht...'
+      : 'Einsatz anlegen'
+  }}
+</button>
         </div>
       </div>
     </div>
