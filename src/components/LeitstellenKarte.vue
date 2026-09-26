@@ -51,12 +51,6 @@ const wachen = [
 // bewegen wir sie über echte Straßen.
 // --------------------------------------------------
 
-const fahrzeugPositionen = {
-  1: [49.015, 12.0819],
-  2: [49.0145, 12.0831],
-  3: [49.0127, 12.1028],
-  4: [49.0202, 12.1127],
-}
 
 function statusFarbe(status) {
   switch (status) {
@@ -118,12 +112,14 @@ function zeichneFahrzeuge() {
   fahrzeugEbene.clearLayers()
 
   props.fahrzeuge.forEach((fahrzeug) => {
-    const position =
-      fahrzeugPositionen[fahrzeug.id]
+    if (!fahrzeug.position) {
+  return
+}
 
-    if (!position) {
-      return
-    }
+const position = [
+  fahrzeug.position.lat,
+  fahrzeug.position.lng,
+]
 
     const farbe = statusFarbe(
       fahrzeug.status,
@@ -186,8 +182,8 @@ watch(
     props.fahrzeuge.map((fahrzeug) => ({
       id: fahrzeug.id,
       status: fahrzeug.status,
-      funkrufname: fahrzeug.funkrufname,
-      typ: fahrzeug.typ,
+      lat: fahrzeug.position?.lat,
+      lng: fahrzeug.position?.lng,
     })),
   () => {
     zeichneFahrzeuge()
@@ -203,6 +199,7 @@ onBeforeUnmount(() => {
     karte = null
   }
 })
+
 </script>
 
 <template>

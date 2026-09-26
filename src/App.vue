@@ -995,26 +995,7 @@ function aktualisiereFahrzeugEinsaetze() {
     }
   })
 }
-
 function naechsteFahrzeugPhase(fahrzeug) {
-  const einsatzId = fahrzeug.einsatzId
-
-  // Status 3 -> Status 4
-  if (fahrzeug.status === 3) {
-    fahrzeug.status = 4
-
-    // Zeit am Einsatzort
-    fahrzeug.naechsterStatusIn =
-      zufallsSekunden(15, 30)
-
-    protokolliere(
-      `${fahrzeug.funkrufname} meldet Status 4 – Einsatzstelle erreicht`,
-      'fahrzeug',
-    )
-
-    return
-  }
-
   // RTW: Status 4 -> Status 7
   if (
     fahrzeug.status === 4 &&
@@ -1022,7 +1003,6 @@ function naechsteFahrzeugPhase(fahrzeug) {
   ) {
     fahrzeug.status = 7
 
-    // Transportzeit
     fahrzeug.naechsterStatusIn =
       zufallsSekunden(12, 25)
 
@@ -1034,8 +1014,7 @@ function naechsteFahrzeugPhase(fahrzeug) {
     return
   }
 
-  // NEF / Feuerwehr:
-  // Einsatz nach Status 4 beendet
+  // NEF / Feuerwehr nach Einsatzstelle wieder frei
   if (fahrzeug.status === 4) {
     fahrzeugEinsatzBeenden(fahrzeug)
     return
@@ -1045,7 +1024,6 @@ function naechsteFahrzeugPhase(fahrzeug) {
   if (fahrzeug.status === 7) {
     fahrzeug.status = 8
 
-    // Übergabe am Transportziel
     fahrzeug.naechsterStatusIn =
       zufallsSekunden(10, 20)
 
@@ -1060,14 +1038,7 @@ function naechsteFahrzeugPhase(fahrzeug) {
   // RTW nach Status 8 wieder frei
   if (fahrzeug.status === 8) {
     fahrzeugEinsatzBeenden(fahrzeug)
-    return
   }
-
-  console.warn(
-    `Unbekannter Fahrzeugstatus bei ${fahrzeug.funkrufname}:`,
-    fahrzeug.status,
-    einsatzId,
-  )
 }
 
 function fahrzeugEinsatzBeenden(fahrzeug) {
@@ -1126,7 +1097,7 @@ function fahrzeugEinsatzBeenden(fahrzeug) {
 // ALARMIERUNG
 // --------------------------------------------------
 
-function alarmieren() {
+async function alarmieren() {
   const einsatz =
     ausgewaehlterEinsatz.value
 
@@ -1138,6 +1109,7 @@ function alarmieren() {
     alert(
       'Bitte zuerst mindestens ein Fahrzeug auswählen.',
     )
+
     return
   }
 
@@ -1155,9 +1127,8 @@ function alarmieren() {
       fahrzeug.status = 3
       fahrzeug.einsatzId = einsatz.id
 
-      // Testweise kurze Anfahrtszeit
-      fahrzeug.naechsterStatusIn = 5
-  
+      // Fallback
+      fahrzeug.naechsterStatusIn = 10
     },
   )
 
@@ -1172,6 +1143,85 @@ function alarmieren() {
   protokolliere(
     `Einsatz #${einsatz.id}: ${fahrzeugNamen} alarmiert`,
     'alarm',
+  )
+
+  // Keine Koordinaten?
+  // Dann funktioniert weiterhin der alte Countdown.
+  if (!einsatz.position) {
+    protokolliere(
+      `Einsatz #${einsatz.id}: keine Kartenposition vorhanden`,
+      'warnung',
+    )
+
+    return
+  }
+
+  await Promise.all(
+    alarmierteFahrzeuge.map(
+      async (fahrzeug) => {
+        try {
+          const route =
+            await routeBerechnen(
+              fahrzeug.position,
+              einsatz.position,
+            )
+
+          fahrzeug.route = route.punkte
+          fahrzeug.routeSchritt = 0
+
+          /*
+           * Die echte Fahrzeit wäre für Tests zu lang.
+           *
+           * OSRM liefert z.B. 420 Sekunden.
+           * Wir beschleunigen das Spiel ungefähr
+           * um Faktor 20.
+           */
+          const simulierteFahrzeit =
+            Math.round(
+              route.dauerSekunden / 20,
+            )
+
+          fahrzeug.routeSchritte =
+            Math.max(
+              8,
+              Math.min(
+                35,
+                simulierteFahrzeit,
+              ),
+            )
+
+          fahrzeug.naechsterStatusIn =
+            fahrzeug.routeSchritte
+
+          const kilometer =
+            (
+              route.distanzMeter / 1000
+            ).toFixed(1)
+
+          protokolliere(
+            `${fahrzeug.funkrufname}: Route ${kilometer} km – simulierte Fahrzeit ${fahrzeug.routeSchritte} s`,
+            'fahrzeug',
+          )
+        } catch (fehler) {
+          console.error(
+            'Routingfehler:',
+            fehler,
+          )
+
+          fahrzeug.route = []
+          fahrzeug.routeSchritt = 0
+          fahrzeug.routeSchritte = 0
+
+          // Falls OSRM nicht erreichbar ist:
+          fahrzeug.naechsterStatusIn = 10
+
+          protokolliere(
+            `${fahrzeug.funkrufname}: Routing nicht verfügbar – verwende simulierte Fahrzeit`,
+            'warnung',
+          )
+        }
+      },
+    ),
   )
 }
 
