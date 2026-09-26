@@ -14,6 +14,7 @@ import { adresseGeocodieren } from './services/geocoding.js'
 import LeitstellenKarte from './components/LeitstellenKarte.vue'
 import FahrzeugUebersicht from './components/FahrzeugUebersicht.vue'
 import EinsatzListe from './components/EinsatzListe.vue'
+import EinsatzDetails from './components/EinsatzDetails.vue'
 // --------------------------------------------------
 // UHRZEIT
 // --------------------------------------------------
@@ -1010,32 +1011,57 @@ function fahrzeugHinweis(fahrzeug) {
 // --------------------------------------------------
 
 function fahrzeugAuswaehlen(fahrzeug) {
-  const einsatz = ausgewaehlterEinsatz.value
+  const einsatz =
+    ausgewaehlterEinsatz.value
+
+  if (!einsatz) {
+    return
+  }
 
   if (
-    !einsatz ||
-    einsatz.status === 'alarmiert'
+    einsatz.status ===
+    'abgeschlossen'
+  ) {
+    return
+  }
+
+  // Bereits alarmierte Fahrzeuge können
+  // nicht mehr abgewählt werden.
+  if (
+    fahrzeug.einsatzId ===
+    einsatz.id
   ) {
     return
   }
 
   const bereitsAusgewaehlt =
-    einsatz.fahrzeuge.includes(fahrzeug.id)
+    einsatz.fahrzeuge.includes(
+      fahrzeug.id,
+    )
 
+  // Noch nicht alarmiertes Fahrzeug
+  // wieder aus der Auswahl entfernen
   if (bereitsAusgewaehlt) {
     einsatz.fahrzeuge =
       einsatz.fahrzeuge.filter(
-        (id) => id !== fahrzeug.id,
+        (id) =>
+          id !== fahrzeug.id,
       )
 
     return
   }
 
-  if (!istFahrzeugVerfuegbar(fahrzeug)) {
+  if (
+    !istFahrzeugVerfuegbar(
+      fahrzeug,
+    )
+  ) {
     return
   }
 
-  einsatz.fahrzeuge.push(fahrzeug.id)
+  einsatz.fahrzeuge.push(
+    fahrzeug.id,
+  )
 }
 
 function istFahrzeugAusgewaehlt(fahrzeugId) {
@@ -1045,22 +1071,44 @@ function istFahrzeugAusgewaehlt(fahrzeugId) {
 }
 
 function istFahrzeugDeaktiviert(fahrzeug) {
-  if (!ausgewaehlterEinsatz.value) {
+  const einsatz =
+    ausgewaehlterEinsatz.value
+
+  if (!einsatz) {
     return true
   }
 
+  // Abgeschlossene Einsätze nicht mehr bearbeiten
+  if (einsatz.status === 'abgeschlossen') {
+    return true
+  }
+
+  // Fahrzeug wurde für genau diesen Einsatz
+  // bereits alarmiert.
+  // Es bleibt sichtbar, kann aber nicht mehr
+  // abgewählt werden.
   if (
-    ausgewaehlterEinsatz.value.status ===
-    'alarmiert'
+    fahrzeug.einsatzId === einsatz.id
   ) {
     return true
   }
 
-  if (istFahrzeugAusgewaehlt(fahrzeug.id)) {
+  // Gerade neu ausgewähltes Fahrzeug darf
+  // wieder abgewählt werden.
+  if (
+    istFahrzeugAusgewaehlt(
+      fahrzeug.id,
+    )
+  ) {
     return false
   }
 
-  return !istFahrzeugVerfuegbar(fahrzeug)
+  // Sonstige verfügbare Fahrzeuge können
+  // auch bei einem bereits alarmierten Einsatz
+  // nachalarmiert werden.
+  return !istFahrzeugVerfuegbar(
+    fahrzeug,
+  )
 }
 
 // --------------------------------------------------
@@ -1291,35 +1339,54 @@ async function alarmieren() {
     return
   }
 
-  if (einsatz.fahrzeuge.length === 0) {
+  // Nur Fahrzeuge ermitteln, die zwar
+  // ausgewählt, aber für diesen Einsatz
+  // NOCH NICHT alarmiert wurden.
+  const zuAlarmierendeFahrzeuge =
+    fahrzeuge.value.filter(
+      (fahrzeug) => {
+        return (
+          einsatz.fahrzeuge.includes(
+            fahrzeug.id,
+          ) &&
+          fahrzeug.einsatzId !==
+            einsatz.id
+        )
+      },
+    )
+
+  if (
+    zuAlarmierendeFahrzeuge.length ===
+    0
+  ) {
     alert(
-      'Bitte zuerst mindestens ein Fahrzeug auswählen.',
+      'Bitte mindestens ein weiteres verfügbares Fahrzeug auswählen.',
     )
 
     return
   }
 
+  const istNachalarmierung =
+    einsatz.status === 'alarmiert'
+
   einsatz.status = 'alarmiert'
 
-  const alarmierteFahrzeuge =
-    fahrzeuge.value.filter((fahrzeug) =>
-      einsatz.fahrzeuge.includes(
-        fahrzeug.id,
-      ),
-    )
-
-  alarmierteFahrzeuge.forEach(
+  // Nur die NEU ausgewählten Fahrzeuge
+  // auf Status 3 setzen.
+  zuAlarmierendeFahrzeuge.forEach(
     (fahrzeug) => {
       fahrzeug.status = 3
-      fahrzeug.einsatzId = einsatz.id
+      fahrzeug.einsatzId =
+        einsatz.id
 
-      // Fallback
-      fahrzeug.naechsterStatusIn = 10
+      // Fallback, falls Routing fehlschlägt
+      fahrzeug.naechsterStatusIn =
+        10
     },
   )
 
   const fahrzeugNamen =
-    alarmierteFahrzeuge
+    zuAlarmierendeFahrzeuge
       .map(
         (fahrzeug) =>
           fahrzeug.funkrufname,
@@ -1327,12 +1394,14 @@ async function alarmieren() {
       .join(', ')
 
   protokolliere(
-    `Einsatz #${einsatz.id}: ${fahrzeugNamen} alarmiert`,
+    istNachalarmierung
+      ? `Einsatz #${einsatz.id}: Nachalarmierung – ${fahrzeugNamen}`
+      : `Einsatz #${einsatz.id}: ${fahrzeugNamen} alarmiert`,
     'alarm',
   )
 
-  // Keine Koordinaten?
-  // Dann funktioniert weiterhin der alte Countdown.
+  // Keine Kartenposition vorhanden:
+  // Fahrzeug läuft über den Fallback-Timer.
   if (!einsatz.position) {
     protokolliere(
       `Einsatz #${einsatz.id}: keine Kartenposition vorhanden`,
@@ -1343,7 +1412,7 @@ async function alarmieren() {
   }
 
   await Promise.all(
-    alarmierteFahrzeuge.map(
+    zuAlarmierendeFahrzeuge.map(
       async (fahrzeug) => {
         try {
           const route =
@@ -1352,19 +1421,15 @@ async function alarmieren() {
               einsatz.position,
             )
 
-          fahrzeug.route = route.punkte
+          fahrzeug.route =
+            route.punkte
+
           fahrzeug.routeSchritt = 0
 
-          /*
-           * Die echte Fahrzeit wäre für Tests zu lang.
-           *
-           * OSRM liefert z.B. 420 Sekunden.
-           * Wir beschleunigen das Spiel ungefähr
-           * um Faktor 20.
-           */
           const simulierteFahrzeit =
             Math.round(
-              route.dauerSekunden / 20,
+              route.dauerSekunden /
+                20,
             )
 
           fahrzeug.routeSchritte =
@@ -1381,7 +1446,8 @@ async function alarmieren() {
 
           const kilometer =
             (
-              route.distanzMeter / 1000
+              route.distanzMeter /
+              1000
             ).toFixed(1)
 
           protokolliere(
@@ -1398,8 +1464,8 @@ async function alarmieren() {
           fahrzeug.routeSchritt = 0
           fahrzeug.routeSchritte = 0
 
-          // Falls OSRM nicht erreichbar ist:
-          fahrzeug.naechsterStatusIn = 10
+          fahrzeug.naechsterStatusIn =
+            10
 
           protokolliere(
             `${fahrzeug.funkrufname}: Routing nicht verfügbar – verwende simulierte Fahrzeit`,
@@ -1554,140 +1620,15 @@ async function alarmieren() {
 
       <!-- EINSATZDETAILS -->
 
-      <section
-        v-if="ausgewaehlterEinsatz"
-        class="panel einsatzdetails"
-      >
-        <div class="panel-kopf">
-          <h2>
-            Einsatz #{{ ausgewaehlterEinsatz.id }}
-          </h2>
-
-          <span
-            v-if="ausgewaehlterEinsatz.stichwort"
-            class="stichwort-badge"
-          >
-            {{ ausgewaehlterEinsatz.stichwort }}
-          </span>
-        </div>
-
-        <div class="detailblock">
-          <label>Einsatzstichwort</label>
-
-          <strong>
-            {{
-              ausgewaehlterEinsatz.stichwort ||
-              'Nicht vergeben'
-            }}
-          </strong>
-        </div>
-
-        <div class="detailblock">
-          <label>Meldebild</label>
-
-          <strong>
-            {{ ausgewaehlterEinsatz.meldung }}
-          </strong>
-        </div>
-
-        <div class="detailblock">
-          <label>Einsatzort</label>
-
-          <strong>
-            {{ ausgewaehlterEinsatz.ort }}
-          </strong>
-        </div>
-
-        <div class="detailblock">
-          <label>Bemerkung</label>
-
-          <div class="detailtext">
-            {{
-              ausgewaehlterEinsatz.bemerkung ||
-              'Keine weiteren Informationen vorhanden.'
-            }}
-          </div>
-        </div>
-<button
-  class="bearbeitenbutton"
-  @click="
-    einsatzBearbeiten(
-      ausgewaehlterEinsatz
-    )
-  "
->
-  ✎ Einsatz bearbeiten
-</button>
-        <h3>Fahrzeuge disponieren</h3>
-
-        <div class="fahrzeugauswahl">
-          <button
-            v-for="fahrzeug in fahrzeuge"
-            :key="fahrzeug.id"
-            class="fahrzeug"
-            :class="{
-              ausgewaehlt:
-                istFahrzeugAusgewaehlt(
-                  fahrzeug.id,
-                ),
-
-              'nicht-verfuegbar':
-                istFahrzeugDeaktiviert(fahrzeug),
-            }"
-            :disabled="
-              istFahrzeugDeaktiviert(fahrzeug)
-            "
-            @click="fahrzeugAuswaehlen(fahrzeug)"
-          >
-            <div>
-              <strong>
-                {{ fahrzeug.funkrufname }}
-              </strong>
-
-              <span>
-                {{ fahrzeug.typ }}
-              </span>
-            </div>
-
-            <div class="fahrzeug-rechts">
-              <div class="status">
-                Status {{ fahrzeug.status }}
-              </div>
-
-              <div
-                class="verfuegbarkeit"
-                :class="{
-                  verfuegbar:
-                    istFahrzeugVerfuegbar(
-                      fahrzeug,
-                    ) ||
-                    istFahrzeugAusgewaehlt(
-                      fahrzeug.id,
-                    ),
-                }"
-              >
-                {{ fahrzeugHinweis(fahrzeug) }}
-              </div>
-            </div>
-          </button>
-        </div>
-
-        <button
-          class="alarmbutton"
-          :disabled="
-            ausgewaehlterEinsatz.status ===
-            'alarmiert'
-          "
-          @click="alarmieren"
-        >
-          {{
-            ausgewaehlterEinsatz.status ===
-            'alarmiert'
-              ? 'Alarmierung erfolgt'
-              : 'Fahrzeuge alarmieren'
-          }}
-        </button>
-      </section>
+<EinsatzDetails
+  v-if="ausgewaehlterEinsatz"
+  :einsatz="ausgewaehlterEinsatz"
+  :fahrzeuge="fahrzeuge"
+  :fahrzeug-hinweis="fahrzeugHinweis"
+  @bearbeiten="einsatzBearbeiten"
+  @fahrzeug-auswaehlen="fahrzeugAuswaehlen"
+  @alarmieren="alarmieren"
+/>
 
    <!-- FAHRZEUGE -->
 
