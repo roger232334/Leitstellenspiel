@@ -1,25 +1,19 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  ref,
+} from 'vue'
+
+import { notrufSzenarien } from './data/notrufSzenarien.js'
 
 // --------------------------------------------------
-// UHRZEIT + NOTRUF-TIMER
+// UHRZEIT
 // --------------------------------------------------
 
 const uhrzeit = ref('')
-
-const notrufDialog = ref(false)
-const notrufSekunden = ref(0)
-
-const notrufDaten = ref({
-  anrufer: '',
-  rueckrufnummer: '',
-  ort: '',
-  strasse: '',
-  hausnummer: '',
-  meldung: '',
-  stichwort: '',
-  notiz: '',
-})
 
 function aktualisiereUhrzeit() {
   uhrzeit.value = new Date().toLocaleTimeString('de-DE', {
@@ -42,13 +36,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   clearInterval(timer)
-})
-
-const notrufDauer = computed(() => {
-  const minuten = Math.floor(notrufSekunden.value / 60)
-  const sekunden = notrufSekunden.value % 60
-
-  return `${String(minuten).padStart(2, '0')}:${String(sekunden).padStart(2, '0')}`
 })
 
 // --------------------------------------------------
@@ -120,14 +107,55 @@ function einsatzAuswaehlen(id) {
 }
 
 function naechsteEinsatzId() {
-  return Math.max(...einsaetze.value.map((einsatz) => einsatz.id), 1000) + 1
+  return Math.max(
+    ...einsaetze.value.map((einsatz) => einsatz.id),
+    1000,
+  ) + 1
 }
 
 // --------------------------------------------------
-// NOTRUFANNAHME
+// NOTRUF
 // --------------------------------------------------
 
+const notrufDialog = ref(false)
+const notrufSekunden = ref(0)
+
+const aktuellesSzenario = ref(null)
+
+const gespraech = ref([])
+const frage = ref('')
+
+const chatFenster = ref(null)
+
+const notrufDaten = ref({
+  anrufer: '',
+  rueckrufnummer: '',
+  ort: '',
+  strasse: '',
+  hausnummer: '',
+  meldung: '',
+  stichwort: '',
+  notiz: '',
+})
+
+const notrufDauer = computed(() => {
+  const minuten = Math.floor(notrufSekunden.value / 60)
+  const sekunden = notrufSekunden.value % 60
+
+  return `${String(minuten).padStart(2, '0')}:${String(sekunden).padStart(2, '0')}`
+})
+
+function zufaelligesSzenario() {
+  const index = Math.floor(
+    Math.random() * notrufSzenarien.length,
+  )
+
+  return notrufSzenarien[index]
+}
+
 function notrufAnnehmen() {
+  aktuellesSzenario.value = zufaelligesSzenario()
+
   notrufDaten.value = {
     anrufer: '',
     rueckrufnummer: '',
@@ -139,13 +167,94 @@ function notrufAnnehmen() {
     notiz: '',
   }
 
+  frage.value = ''
   notrufSekunden.value = 0
+
+  gespraech.value = [
+    {
+      id: Date.now(),
+      rolle: 'anrufer',
+      text: aktuellesSzenario.value.startText,
+    },
+  ]
+
   notrufDialog.value = true
+
+  scrollChatNachUnten()
 }
 
 function notrufBeenden() {
   notrufDialog.value = false
   notrufSekunden.value = 0
+  aktuellesSzenario.value = null
+  gespraech.value = []
+  frage.value = ''
+}
+
+async function scrollChatNachUnten() {
+  await nextTick()
+
+  if (chatFenster.value) {
+    chatFenster.value.scrollTop =
+      chatFenster.value.scrollHeight
+  }
+}
+
+function passendeAntwort(frageText) {
+  const text = frageText.toLowerCase()
+
+  const treffer = aktuellesSzenario.value.antworten.find(
+    (antwort) => {
+      return antwort.schluesselwoerter.some(
+        (schluesselwort) =>
+          text.includes(schluesselwort.toLowerCase()),
+      )
+    },
+  )
+
+  if (treffer) {
+    return treffer.antwort
+  }
+
+  const standardAntworten =
+    aktuellesSzenario.value.standardAntworten
+
+  const index = Math.floor(
+    Math.random() * standardAntworten.length,
+  )
+
+  return standardAntworten[index]
+}
+
+async function frageSenden() {
+  const text = frage.value.trim()
+
+  if (
+    text === '' ||
+    !aktuellesSzenario.value
+  ) {
+    return
+  }
+
+  gespraech.value.push({
+    id: Date.now(),
+    rolle: 'disponent',
+    text,
+  })
+
+  frage.value = ''
+
+  await scrollChatNachUnten()
+
+  const antwort = passendeAntwort(text)
+
+  gespraech.value.push({
+    id: Date.now() + 1,
+    rolle: 'anrufer',
+    text: antwort,
+  })
+
+  await scrollChatNachUnten()
 }
 
 function einsatzAusNotrufErstellen() {
@@ -181,7 +290,9 @@ function einsatzAusNotrufErstellen() {
   const bemerkungen = []
 
   if (notrufDaten.value.anrufer.trim() !== '') {
-    bemerkungen.push(`Anrufer: ${notrufDaten.value.anrufer.trim()}`)
+    bemerkungen.push(
+      `Anrufer: ${notrufDaten.value.anrufer.trim()}`,
+    )
   }
 
   if (notrufDaten.value.rueckrufnummer.trim() !== '') {
@@ -191,7 +302,9 @@ function einsatzAusNotrufErstellen() {
   }
 
   if (notrufDaten.value.notiz.trim() !== '') {
-    bemerkungen.push(notrufDaten.value.notiz.trim())
+    bemerkungen.push(
+      notrufDaten.value.notiz.trim(),
+    )
   }
 
   const neueId = naechsteEinsatzId()
@@ -210,6 +323,8 @@ function einsatzAusNotrufErstellen() {
 
   notrufDialog.value = false
   notrufSekunden.value = 0
+  aktuellesSzenario.value = null
+  gespraech.value = []
 }
 
 // --------------------------------------------------
@@ -275,23 +390,31 @@ function andererEinsatzMitFahrzeug(fahrzeugId) {
 }
 
 function istFahrzeugVerfuegbar(fahrzeug) {
-  const andererEinsatz = andererEinsatzMitFahrzeug(fahrzeug.id)
+  const andererEinsatz =
+    andererEinsatzMitFahrzeug(fahrzeug.id)
 
   if (andererEinsatz) {
     return false
   }
 
-  return fahrzeug.status === 1 || fahrzeug.status === 2
+  return (
+    fahrzeug.status === 1 ||
+    fahrzeug.status === 2
+  )
 }
 
 function fahrzeugHinweis(fahrzeug) {
-  const andererEinsatz = andererEinsatzMitFahrzeug(fahrzeug.id)
+  const andererEinsatz =
+    andererEinsatzMitFahrzeug(fahrzeug.id)
 
   if (andererEinsatz) {
     return `Für Einsatz #${andererEinsatz.id} disponiert`
   }
 
-  if (fahrzeug.status === 1 || fahrzeug.status === 2) {
+  if (
+    fahrzeug.status === 1 ||
+    fahrzeug.status === 2
+  ) {
     return 'Verfügbar'
   }
 
@@ -313,16 +436,21 @@ function fahrzeugHinweis(fahrzeug) {
 function fahrzeugAuswaehlen(fahrzeug) {
   const einsatz = ausgewaehlterEinsatz.value
 
-  if (!einsatz || einsatz.status === 'alarmiert') {
+  if (
+    !einsatz ||
+    einsatz.status === 'alarmiert'
+  ) {
     return
   }
 
-  const bereitsAusgewaehlt = einsatz.fahrzeuge.includes(fahrzeug.id)
+  const bereitsAusgewaehlt =
+    einsatz.fahrzeuge.includes(fahrzeug.id)
 
   if (bereitsAusgewaehlt) {
-    einsatz.fahrzeuge = einsatz.fahrzeuge.filter(
-      (id) => id !== fahrzeug.id,
-    )
+    einsatz.fahrzeuge =
+      einsatz.fahrzeuge.filter(
+        (id) => id !== fahrzeug.id,
+      )
 
     return
   }
@@ -335,7 +463,9 @@ function fahrzeugAuswaehlen(fahrzeug) {
 }
 
 function istFahrzeugAusgewaehlt(fahrzeugId) {
-  return ausgewaehlterEinsatz.value?.fahrzeuge.includes(fahrzeugId)
+  return ausgewaehlterEinsatz.value?.fahrzeuge.includes(
+    fahrzeugId,
+  )
 }
 
 function istFahrzeugDeaktiviert(fahrzeug) {
@@ -343,7 +473,10 @@ function istFahrzeugDeaktiviert(fahrzeug) {
     return true
   }
 
-  if (ausgewaehlterEinsatz.value.status === 'alarmiert') {
+  if (
+    ausgewaehlterEinsatz.value.status ===
+    'alarmiert'
+  ) {
     return true
   }
 
@@ -366,14 +499,18 @@ function alarmieren() {
   }
 
   if (einsatz.fahrzeuge.length === 0) {
-    alert('Bitte zuerst mindestens ein Fahrzeug auswählen.')
+    alert(
+      'Bitte zuerst mindestens ein Fahrzeug auswählen.',
+    )
     return
   }
 
   einsatz.status = 'alarmiert'
 
   fahrzeuge.value.forEach((fahrzeug) => {
-    if (einsatz.fahrzeuge.includes(fahrzeug.id)) {
+    if (
+      einsatz.fahrzeuge.includes(fahrzeug.id)
+    ) {
       fahrzeug.status = 3
     }
   })
@@ -444,7 +581,9 @@ function statusText(status) {
             :key="einsatz.id"
             class="einsatz"
             :class="{
-              aktiv: einsatz.id === ausgewaehlterEinsatzId,
+              aktiv:
+                einsatz.id ===
+                ausgewaehlterEinsatzId,
             }"
             @click="einsatzAuswaehlen(einsatz.id)"
           >
@@ -452,9 +591,13 @@ function statusText(status) {
               #{{ einsatz.id }}
             </div>
 
-            <strong>{{ einsatz.meldung }}</strong>
+            <strong>
+              {{ einsatz.meldung }}
+            </strong>
 
-            <span>{{ einsatz.ort }}</span>
+            <span>
+              {{ einsatz.ort }}
+            </span>
 
             <span
               class="einsatzstatus"
@@ -480,7 +623,9 @@ function statusText(status) {
         class="panel einsatzdetails"
       >
         <div class="panel-kopf">
-          <h2>Einsatz #{{ ausgewaehlterEinsatz.id }}</h2>
+          <h2>
+            Einsatz #{{ ausgewaehlterEinsatz.id }}
+          </h2>
 
           <span
             v-if="ausgewaehlterEinsatz.stichwort"
@@ -494,18 +639,27 @@ function statusText(status) {
           <label>Einsatzstichwort</label>
 
           <strong>
-            {{ ausgewaehlterEinsatz.stichwort || 'Nicht vergeben' }}
+            {{
+              ausgewaehlterEinsatz.stichwort ||
+              'Nicht vergeben'
+            }}
           </strong>
         </div>
 
         <div class="detailblock">
           <label>Meldebild</label>
-          <strong>{{ ausgewaehlterEinsatz.meldung }}</strong>
+
+          <strong>
+            {{ ausgewaehlterEinsatz.meldung }}
+          </strong>
         </div>
 
         <div class="detailblock">
           <label>Einsatzort</label>
-          <strong>{{ ausgewaehlterEinsatz.ort }}</strong>
+
+          <strong>
+            {{ ausgewaehlterEinsatz.ort }}
+          </strong>
         </div>
 
         <div class="detailblock">
@@ -527,16 +681,27 @@ function statusText(status) {
             :key="fahrzeug.id"
             class="fahrzeug"
             :class="{
-              ausgewaehlt: istFahrzeugAusgewaehlt(fahrzeug.id),
+              ausgewaehlt:
+                istFahrzeugAusgewaehlt(
+                  fahrzeug.id,
+                ),
+
               'nicht-verfuegbar':
                 istFahrzeugDeaktiviert(fahrzeug),
             }"
-            :disabled="istFahrzeugDeaktiviert(fahrzeug)"
+            :disabled="
+              istFahrzeugDeaktiviert(fahrzeug)
+            "
             @click="fahrzeugAuswaehlen(fahrzeug)"
           >
             <div>
-              <strong>{{ fahrzeug.funkrufname }}</strong>
-              <span>{{ fahrzeug.typ }}</span>
+              <strong>
+                {{ fahrzeug.funkrufname }}
+              </strong>
+
+              <span>
+                {{ fahrzeug.typ }}
+              </span>
             </div>
 
             <div class="fahrzeug-rechts">
@@ -548,8 +713,12 @@ function statusText(status) {
                 class="verfuegbarkeit"
                 :class="{
                   verfuegbar:
-                    istFahrzeugVerfuegbar(fahrzeug) ||
-                    istFahrzeugAusgewaehlt(fahrzeug.id),
+                    istFahrzeugVerfuegbar(
+                      fahrzeug,
+                    ) ||
+                    istFahrzeugAusgewaehlt(
+                      fahrzeug.id,
+                    ),
                 }"
               >
                 {{ fahrzeugHinweis(fahrzeug) }}
@@ -560,11 +729,15 @@ function statusText(status) {
 
         <button
           class="alarmbutton"
-          :disabled="ausgewaehlterEinsatz.status === 'alarmiert'"
+          :disabled="
+            ausgewaehlterEinsatz.status ===
+            'alarmiert'
+          "
           @click="alarmieren"
         >
           {{
-            ausgewaehlterEinsatz.status === 'alarmiert'
+            ausgewaehlterEinsatz.status ===
+            'alarmiert'
               ? 'Alarmierung erfolgt'
               : 'Fahrzeuge alarmieren'
           }}
@@ -585,14 +758,21 @@ function statusText(status) {
             class="fahrzeugkarte"
           >
             <div>
-              <strong>{{ fahrzeug.funkrufname }}</strong>
-              <span>{{ fahrzeug.typ }}</span>
+              <strong>
+                {{ fahrzeug.funkrufname }}
+              </strong>
+
+              <span>
+                {{ fahrzeug.typ }}
+              </span>
             </div>
 
             <div class="fahrzeugstatus">
               <span
                 class="statusnummer"
-                :class="'status-' + fahrzeug.status"
+                :class="
+                  'status-' + fahrzeug.status
+                "
               >
                 {{ fahrzeug.status }}
               </span>
@@ -604,7 +784,7 @@ function statusText(status) {
       </section>
     </main>
 
-    <!-- NOTRUFANNAHME -->
+    <!-- SIMULIERTER NOTRUF -->
 
     <div
       v-if="notrufDialog"
@@ -626,92 +806,142 @@ function statusText(status) {
           </div>
         </div>
 
-        <div class="notruf-inhalt">
-          <div class="formular-zeile">
-            <div class="formularfeld">
-              <label>Name des Anrufers</label>
+        <div class="notruf-arbeitsbereich">
+          <!-- GESPRÄCH -->
 
+          <section class="gespraechsbereich">
+            <h3>Gespräch</h3>
+
+            <div
+              ref="chatFenster"
+              class="chatfenster"
+            >
+              <div
+                v-for="nachricht in gespraech"
+                :key="nachricht.id"
+                class="nachricht"
+                :class="nachricht.rolle"
+              >
+                <span class="nachricht-rolle">
+                  {{
+                    nachricht.rolle ===
+                    'anrufer'
+                      ? 'Anrufer'
+                      : 'Disponent'
+                  }}
+                </span>
+
+                <div class="nachricht-text">
+                  {{ nachricht.text }}
+                </div>
+              </div>
+            </div>
+
+            <div class="fragebereich">
               <input
-                v-model="notrufDaten.anrufer"
+                v-model="frage"
                 type="text"
-                placeholder="z.B. Max Mustermann"
+                placeholder="Frage an den Anrufer..."
+                @keyup.enter="frageSenden"
               />
+
+              <button @click="frageSenden">
+                Senden
+              </button>
+            </div>
+          </section>
+
+          <!-- EINSATZERFASSUNG -->
+
+          <section class="notruf-erfassung">
+            <h3>Einsatzerfassung</h3>
+
+            <div class="formular-zeile">
+              <div class="formularfeld">
+                <label>Name des Anrufers</label>
+
+                <input
+                  v-model="notrufDaten.anrufer"
+                  type="text"
+                />
+              </div>
+
+              <div class="formularfeld">
+                <label>Rückrufnummer</label>
+
+                <input
+                  v-model="
+                    notrufDaten.rueckrufnummer
+                  "
+                  type="text"
+                />
+              </div>
             </div>
 
             <div class="formularfeld">
-              <label>Rückrufnummer</label>
+              <label>Ort</label>
 
               <input
-                v-model="notrufDaten.rueckrufnummer"
+                v-model="notrufDaten.ort"
                 type="text"
-                placeholder="z.B. 0171 1234567"
-              />
-            </div>
-          </div>
-
-          <div class="formularfeld">
-            <label>Ort</label>
-
-            <input
-              v-model="notrufDaten.ort"
-              type="text"
-              placeholder="z.B. Regensburg"
-            />
-          </div>
-
-          <div class="formular-zeile adresse-zeile">
-            <div class="formularfeld strasse-feld">
-              <label>Straße</label>
-
-              <input
-                v-model="notrufDaten.strasse"
-                type="text"
-                placeholder="z.B. Prüfeninger Straße"
               />
             </div>
 
-            <div class="formularfeld hausnummer-feld">
-              <label>Hausnummer</label>
+            <div
+              class="formular-zeile adresse-zeile"
+            >
+              <div class="formularfeld">
+                <label>Straße</label>
 
-              <input
-                v-model="notrufDaten.hausnummer"
-                type="text"
-                placeholder="85"
-              />
+                <input
+                  v-model="notrufDaten.strasse"
+                  type="text"
+                />
+              </div>
+
+              <div class="formularfeld">
+                <label>Hausnummer</label>
+
+                <input
+                  v-model="
+                    notrufDaten.hausnummer
+                  "
+                  type="text"
+                />
+              </div>
             </div>
-          </div>
 
-          <div class="formular-zeile">
+            <div class="formular-zeile">
+              <div class="formularfeld">
+                <label>Meldebild *</label>
+
+                <input
+                  v-model="notrufDaten.meldung"
+                  type="text"
+                />
+              </div>
+
+              <div class="formularfeld">
+                <label>Einsatzstichwort</label>
+
+                <input
+                  v-model="
+                    notrufDaten.stichwort
+                  "
+                  type="text"
+                />
+              </div>
+            </div>
+
             <div class="formularfeld">
-              <label>Meldebild *</label>
+              <label>Gesprächsnotiz</label>
 
-              <input
-                v-model="notrufDaten.meldung"
-                type="text"
-                placeholder="z.B. Atemnot"
-              />
+              <textarea
+                v-model="notrufDaten.notiz"
+                rows="5"
+              ></textarea>
             </div>
-
-            <div class="formularfeld">
-              <label>Einsatzstichwort</label>
-
-              <input
-                v-model="notrufDaten.stichwort"
-                type="text"
-                placeholder="z.B. RD2"
-              />
-            </div>
-          </div>
-
-          <div class="formularfeld">
-            <label>Gesprächsnotiz</label>
-
-            <textarea
-              v-model="notrufDaten.notiz"
-              rows="5"
-              placeholder="Informationen aus dem Gespräch..."
-            ></textarea>
-          </div>
+          </section>
         </div>
 
         <div class="notruf-buttons">
@@ -737,15 +967,21 @@ function statusText(status) {
     <div
       v-if="neuerEinsatzDialog"
       class="dialog-hintergrund"
-      @click.self="neuerEinsatzDialog = false"
+      @click.self="
+        neuerEinsatzDialog = false
+      "
     >
       <div class="dialog">
         <div class="dialog-kopf">
-          <h2>Manuellen Einsatz anlegen</h2>
+          <h2>
+            Manuellen Einsatz anlegen
+          </h2>
 
           <button
             class="dialog-schliessen"
-            @click="neuerEinsatzDialog = false"
+            @click="
+              neuerEinsatzDialog = false
+            "
           >
             ×
           </button>
@@ -755,9 +991,10 @@ function statusText(status) {
           <label>Meldebild *</label>
 
           <input
-            v-model="neuerEinsatzDaten.meldung"
+            v-model="
+              neuerEinsatzDaten.meldung
+            "
             type="text"
-            placeholder="z.B. Bewusstlose Person"
           />
         </div>
 
@@ -767,7 +1004,6 @@ function statusText(status) {
           <input
             v-model="neuerEinsatzDaten.ort"
             type="text"
-            placeholder="z.B. Musterstraße 12"
           />
         </div>
 
@@ -775,9 +1011,10 @@ function statusText(status) {
           <label>Einsatzstichwort</label>
 
           <input
-            v-model="neuerEinsatzDaten.stichwort"
+            v-model="
+              neuerEinsatzDaten.stichwort
+            "
             type="text"
-            placeholder="z.B. RD2"
           />
         </div>
 
@@ -785,16 +1022,19 @@ function statusText(status) {
           <label>Bemerkung</label>
 
           <textarea
-            v-model="neuerEinsatzDaten.bemerkung"
+            v-model="
+              neuerEinsatzDaten.bemerkung
+            "
             rows="4"
-            placeholder="Weitere Informationen zum Einsatz..."
           ></textarea>
         </div>
 
         <div class="dialog-buttons">
           <button
             class="abbrechenbutton"
-            @click="neuerEinsatzDialog = false"
+            @click="
+              neuerEinsatzDialog = false
+            "
           >
             Abbrechen
           </button>

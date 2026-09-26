@@ -701,3 +701,178 @@ button {
 .einsatz-erstellen:hover {
   background: #3595c8;
 }
+/* --------------------------------------------------
+   SIMULIERTER NOTRUF
+-------------------------------------------------- */
+
+.notruf-dialog {
+  width: 1100px;
+  max-width: 94vw;
+  height: 760px;
+  max-height: 92vh;
+
+  padding: 0;
+  overflow: hidden;
+
+  display: flex;
+  flex-direction: column;
+}
+
+.notruf-arbeitsbereich {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+
+  gap: 1px;
+
+  flex: 1;
+
+  min-height: 0;
+
+  background: #384954;
+}
+
+.gespraechsbereich,
+.notruf-erfassung {
+  background: #19242e;
+  padding: 18px;
+
+  min-height: 0;
+}
+
+.gespraechsbereich {
+  display: flex;
+  flex-direction: column;
+}
+
+.gespraechsbereich h3,
+.notruf-erfassung h3 {
+  margin: 0 0 15px 0;
+
+  color: #a9bac6;
+
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.chatfenster {
+  flex: 1;
+
+  min-height: 0;
+
+  overflow-y: auto;
+
+  padding: 12px;
+
+  background: #111a22;
+
+  border: 1px solid #354754;
+  border-radius: 5px;
+}
+
+.nachricht {
+  margin-bottom: 16px;
+}
+
+.nachricht-rolle {
+  display: block;
+
+  margin-bottom: 4px;
+
+  color: #8396a5;
+
+  font-size: 10px;
+  font-weight: 700;
+
+  text-transform: uppercase;
+}
+
+.nachricht-text {
+  display: inline-block;
+
+  max-width: 85%;
+
+  padding: 10px 12px;
+
+  border-radius: 6px;
+
+  line-height: 1.45;
+}
+
+.nachricht.anrufer .nachricht-text {
+  background: #293845;
+
+  border: 1px solid #3b5161;
+
+  color: #edf3f7;
+}
+
+.nachricht.disponent {
+  text-align: right;
+}
+
+.nachricht.disponent .nachricht-rolle {
+  text-align: right;
+}
+
+.nachricht.disponent .nachricht-text {
+  background: #235d80;
+
+  border: 1px solid #327da7;
+
+  color: white;
+
+  text-align: left;
+}
+
+.fragebereich {
+  display: flex;
+
+  gap: 8px;
+
+  margin-top: 12px;
+}
+
+.fragebereich input {
+  flex: 1;
+
+  padding: 11px;
+
+  background: #101820;
+
+  border: 1px solid #415462;
+  border-radius: 4px;
+
+  color: white;
+
+  outline: none;
+}
+
+.fragebereich input:focus {
+  border-color: #3995c7;
+}
+
+.fragebereich button {
+  padding: 0 18px;
+
+  background: #287faf;
+
+  border: none;
+  border-radius: 4px;
+
+  color: white;
+
+  cursor: pointer;
+}
+
+.fragebereich button:hover {
+  background: #3695c7;
+}
+
+.notruf-erfassung {
+  overflow-y: auto;
+}
+
+.notruf-erfassung .formularfeld {
+  margin-bottom: 14px;
+}
