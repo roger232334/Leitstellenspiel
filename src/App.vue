@@ -25,6 +25,9 @@ function aktualisiereUhrzeit() {
   if (notrufDialog.value) {
     notrufSekunden.value++
   }
+  if (eingehenderNotruf.value) {
+  klingelSekunden.value++
+  }
 }
 
 let timer
@@ -32,10 +35,16 @@ let timer
 onMounted(() => {
   aktualisiereUhrzeit()
   timer = setInterval(aktualisiereUhrzeit, 1000)
+
+  planeNaechstenNotruf()
 })
 
 onUnmounted(() => {
   clearInterval(timer)
+
+  if (naechsterNotrufTimer) {
+    clearTimeout(naechsterNotrufTimer)
+  }
 })
 
 // --------------------------------------------------
@@ -120,6 +129,16 @@ function naechsteEinsatzId() {
 const notrufDialog = ref(false)
 const notrufSekunden = ref(0)
 
+// Klingelnder, noch nicht angenommener Notruf
+const eingehenderNotruf = ref(false)
+const klingelSekunden = ref(0)
+
+// Szenario, das hinter dem aktuell klingelnden Anruf steckt
+const wartendesSzenario = ref(null)
+
+// Timer bis zum nächsten Anruf
+let naechsterNotrufTimer = null
+
 const aktuellesSzenario = ref(null)
 
 const gespraech = ref([])
@@ -145,6 +164,13 @@ const notrufDauer = computed(() => {
   return `${String(minuten).padStart(2, '0')}:${String(sekunden).padStart(2, '0')}`
 })
 
+const klingelDauer = computed(() => {
+  const minuten = Math.floor(klingelSekunden.value / 60)
+  const sekunden = klingelSekunden.value % 60
+
+  return `${String(minuten).padStart(2, '0')}:${String(sekunden).padStart(2, '0')}`
+})
+
 function zufaelligesSzenario() {
   const index = Math.floor(
     Math.random() * notrufSzenarien.length,
@@ -153,8 +179,62 @@ function zufaelligesSzenario() {
   return notrufSzenarien[index]
 }
 
+function zufaelligeWartezeit() {
+  // Zufällige Wartezeit zwischen 20 und 60 Sekunden
+  return Math.floor(Math.random() * 41) + 20
+}
+
+function planeNaechstenNotruf() {
+  // Alten Timer sicherheitshalber entfernen
+  if (naechsterNotrufTimer) {
+    clearTimeout(naechsterNotrufTimer)
+  }
+
+  // Während eines Gesprächs oder klingelnden Anrufs
+  // keinen weiteren Anruf erzeugen
+  if (notrufDialog.value || eingehenderNotruf.value) {
+    return
+  }
+
+  const wartezeit = zufaelligeWartezeit()
+
+  console.log(`Nächster Notruf in ${wartezeit} Sekunden`)
+
+  naechsterNotrufTimer = setTimeout(() => {
+    starteEingehendenNotruf()
+  }, wartezeit * 1000)
+}
+
+function starteEingehendenNotruf() {
+  if (notrufDialog.value || eingehenderNotruf.value) {
+    return
+  }
+
+  wartendesSzenario.value = zufaelligesSzenario()
+
+  klingelSekunden.value = 0
+  eingehenderNotruf.value = true
+}
+
+// Nur zum Testen während der Entwicklung
+function testNotrufJetzt() {
+  if (naechsterNotrufTimer) {
+    clearTimeout(naechsterNotrufTimer)
+  }
+
+  starteEingehendenNotruf()
+}
+
 function notrufAnnehmen() {
-  aktuellesSzenario.value = zufaelligesSzenario()
+  if (wartendesSzenario.value) {
+    aktuellesSzenario.value = wartendesSzenario.value
+  } else {
+    aktuellesSzenario.value = zufaelligesSzenario()
+  }
+
+  eingehenderNotruf.value = false
+  klingelSekunden.value = 0
+  wartendesSzenario.value = null
 
   notrufDaten.value = {
     anrufer: '',
@@ -183,12 +263,16 @@ function notrufAnnehmen() {
   scrollChatNachUnten()
 }
 
+
+
 function notrufBeenden() {
   notrufDialog.value = false
   notrufSekunden.value = 0
   aktuellesSzenario.value = null
   gespraech.value = []
   frage.value = ''
+
+  planeNaechstenNotruf()
 }
 
 async function scrollChatNachUnten() {
@@ -325,6 +409,8 @@ function einsatzAusNotrufErstellen() {
   notrufSekunden.value = 0
   aktuellesSzenario.value = null
   gespraech.value = []
+
+  planeNaechstenNotruf()
 }
 
 // --------------------------------------------------
@@ -563,17 +649,50 @@ function statusText(status) {
           </span>
         </div>
 
-        <button
-          class="notrufbutton"
-          @click="notrufAnnehmen"
-        >
-          <span class="telefon-symbol">☎</span>
+      <div
+  v-if="eingehenderNotruf"
+  class="eingehender-anruf"
+>
+  <div class="anruf-kopf">
+    <span class="anruf-punkt"></span>
+    Eingehender Notruf
+  </div>
 
-          <div>
-            <strong>Notruf annehmen</strong>
-            <span>112</span>
-          </div>
-        </button>
+  <div class="anruf-info">
+    <span class="telefon-symbol">☎</span>
+
+    <div>
+      <strong>112</strong>
+      <span>Klingelt seit {{ klingelDauer }}</span>
+    </div>
+  </div>
+
+  <button
+    class="annehmenbutton"
+    @click="notrufAnnehmen"
+  >
+    Notruf annehmen
+  </button>
+</div>
+
+<div
+  v-else
+  class="leitungsstatus"
+>
+  <span class="bereit-punkt"></span>
+
+  <div>
+    <strong>Notrufleitung bereit</strong>
+    <span>Warte auf eingehenden Anruf...</span>
+  </div>
+</div>
+
+<button
+  class="testnotrufbutton"
+  @click="testNotrufJetzt"
+>
+  Testanruf jetzt
+</button>
 
         <div class="einsatzliste">
           <button

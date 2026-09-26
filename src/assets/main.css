@@ -876,3 +876,165 @@ button {
 .notruf-erfassung .formularfeld {
   margin-bottom: 14px;
 }
+/* --------------------------------------------------
+   EINGEHENDER NOTRUF
+-------------------------------------------------- */
+
+.eingehender-anruf {
+  margin-bottom: 14px;
+  padding: 14px;
+
+  background: #431c20;
+
+  border: 1px solid #b54148;
+  border-radius: 6px;
+
+  animation: notruf-puls 1.3s infinite;
+}
+
+@keyframes notruf-puls {
+  0% {
+    box-shadow: 0 0 0 rgba(220, 68, 76, 0);
+  }
+
+  50% {
+    box-shadow: 0 0 18px rgba(220, 68, 76, 0.55);
+  }
+
+  100% {
+    box-shadow: 0 0 0 rgba(220, 68, 76, 0);
+  }
+}
+
+.anruf-kopf {
+  display: flex;
+  align-items: center;
+
+  gap: 7px;
+
+  margin-bottom: 12px;
+
+  color: #ff969b;
+
+  font-size: 11px;
+  font-weight: 700;
+
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.anruf-punkt {
+  width: 10px;
+  height: 10px;
+
+  background: #e54b53;
+
+  border-radius: 50%;
+}
+
+.anruf-info {
+  display: flex;
+  align-items: center;
+
+  gap: 12px;
+
+  margin-bottom: 12px;
+}
+
+.anruf-info > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.anruf-info strong {
+  font-size: 18px;
+}
+
+.anruf-info span {
+  color: #d5a4a7;
+  font-size: 11px;
+}
+
+.annehmenbutton {
+  width: 100%;
+
+  padding: 11px;
+
+  background: #2b9b60;
+  color: white;
+
+  border: none;
+  border-radius: 4px;
+
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+.annehmenbutton:hover {
+  background: #35ad6d;
+}
+
+.leitungsstatus {
+  display: flex;
+  align-items: center;
+
+  gap: 10px;
+
+  margin-bottom: 8px;
+  padding: 12px;
+
+  background: #202e39;
+
+  border: 1px solid #354754;
+  border-radius: 5px;
+}
+
+.leitungsstatus > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.leitungsstatus strong {
+  font-size: 12px;
+}
+
+.leitungsstatus span {
+  margin-top: 3px;
+
+  color: #8fa0ad;
+
+  font-size: 10px;
+}
+
+.bereit-punkt {
+  width: 10px;
+  height: 10px;
+
+  flex-shrink: 0;
+
+  background: #35b16b;
+
+  border-radius: 50%;
+}
+
+.testnotrufbutton {
+  margin-bottom: 14px;
+
+  padding: 6px;
+
+  background: transparent;
+  color: #728795;
+
+  border: 1px dashed #3d505e;
+  border-radius: 4px;
+
+  font-size: 10px;
+
+  cursor: pointer;
+}
+
+.testnotrufbutton:hover {
+  color: #b7c6d0;
+  border-color: #617786;
+}
