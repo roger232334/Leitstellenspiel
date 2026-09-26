@@ -1038,3 +1038,155 @@ button {
   color: #b7c6d0;
   border-color: #617786;
 }
+/* --------------------------------------------------
+   V0.8 - AUDIO / SYSTEMCHRONIK
+-------------------------------------------------- */
+
+.tonbutton {
+  padding: 6px 10px;
+
+  background: #263642;
+  color: #aebcc6;
+
+  border: 1px solid #3c505e;
+  border-radius: 4px;
+
+  font-size: 11px;
+
+  cursor: pointer;
+}
+
+.tonbutton:hover {
+  background: #304653;
+  color: white;
+}
+
+.tonbutton.aktiv {
+  background: #1e5138;
+  border-color: #2c8b5c;
+  color: #8ce3b1;
+}
+
+.verpasst-badge {
+  padding: 5px 8px;
+
+  background: #732b30;
+  color: #ffb3b7 !important;
+
+  border: 1px solid #a53b43;
+  border-radius: 4px;
+
+  font-size: 10px !important;
+  font-weight: bold;
+}
+
+/* Arbeitsbereich etwas verkleinern,
+   damit unten Platz für die Chronik bleibt */
+
+.arbeitsbereich {
+  min-height: calc(100vh - 82px - 165px);
+}
+
+/* Ereignisprotokoll */
+
+.ereignisprotokoll {
+  height: 150px;
+
+  margin: 0 12px 12px 12px;
+
+  background: #151f27;
+
+  border: 1px solid #32414e;
+  border-radius: 6px;
+
+  overflow: hidden;
+}
+
+.ereignis-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  height: 38px;
+
+  padding: 0 12px;
+
+  background: #1c2933;
+
+  border-bottom: 1px solid #344550;
+}
+
+.ereignis-kopf h2 {
+  margin: 0;
+
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.ereignis-kopf span {
+  color: #8093a1;
+
+  font-size: 10px;
+}
+
+.ereignisliste {
+  height: calc(100% - 38px);
+
+  overflow-y: auto;
+
+  padding: 6px 10px;
+}
+
+.ereigniszeile {
+  display: grid;
+  grid-template-columns: 75px 1fr;
+
+  gap: 8px;
+
+  padding: 4px 6px;
+
+  color: #aebbc5;
+
+  border-bottom: 1px solid #202e38;
+
+  font-size: 11px;
+}
+
+.ereigniszeit {
+  color: #637b8d;
+
+  font-family: monospace;
+}
+
+.ereigniszeile.notruf {
+  color: #efa3a7;
+}
+
+.ereigniszeile.warnung {
+  color: #f2b56b;
+}
+
+.ereigniszeile.erfolg {
+  color: #73d49b;
+}
+
+.ereigniszeile.einsatz {
+  color: #76bde5;
+}
+
+.ereigniszeile.alarm {
+  color: #e4c365;
+}
+
+.ereigniszeile.system {
+  color: #899da9;
+}
+
+.keine-ereignisse {
+  padding: 10px;
+
+  color: #71838f;
+
+  font-size: 11px;
+}

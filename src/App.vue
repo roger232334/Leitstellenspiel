@@ -16,17 +16,28 @@ import { notrufSzenarien } from './data/notrufSzenarien.js'
 const uhrzeit = ref('')
 
 function aktualisiereUhrzeit() {
-  uhrzeit.value = new Date().toLocaleTimeString('de-DE', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
+  uhrzeit.value = new Date().toLocaleTimeString(
+    'de-DE',
+    {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    },
+  )
 
   if (notrufDialog.value) {
     notrufSekunden.value++
   }
+
   if (eingehenderNotruf.value) {
-  klingelSekunden.value++
+    klingelSekunden.value++
+
+    if (
+      klingelSekunden.value >=
+      ANRUF_TIMEOUT
+    ) {
+      notrufVerpasst()
+    }
   }
 }
 
@@ -34,13 +45,24 @@ let timer
 
 onMounted(() => {
   aktualisiereUhrzeit()
-  timer = setInterval(aktualisiereUhrzeit, 1000)
+
+  timer = setInterval(
+    aktualisiereUhrzeit,
+    1000,
+  )
+
+  protokolliere(
+    'Leitstellensimulation gestartet',
+    'system',
+  )
 
   planeNaechstenNotruf()
 })
 
 onUnmounted(() => {
   clearInterval(timer)
+
+  stoppeKlingelTon()
 
   if (naechsterNotrufTimer) {
     clearTimeout(naechsterNotrufTimer)
@@ -135,6 +157,121 @@ const klingelSekunden = ref(0)
 
 // Szenario, das hinter dem aktuell klingelnden Anruf steckt
 const wartendesSzenario = ref(null)
+// --------------------------------------------------
+// SYSTEMCHRONIK + AUDIO
+// --------------------------------------------------
+
+const ereignisse = ref([])
+const verpassteAnrufe = ref(0)
+
+const tonAktiv = ref(false)
+
+const ANRUF_TIMEOUT = 20
+
+let audioContext = null
+let klingelTonIntervall = null
+
+function aktuelleZeit() {
+  return new Date().toLocaleTimeString('de-DE', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+function protokolliere(text, typ = 'info') {
+  ereignisse.value.unshift({
+    id: `${Date.now()}-${Math.random()}`,
+    zeit: aktuelleZeit(),
+    text,
+    typ,
+  })
+
+  // Maximal 50 Einträge behalten
+  if (ereignisse.value.length > 50) {
+    ereignisse.value = ereignisse.value.slice(0, 50)
+  }
+}
+
+async function tonAktivieren() {
+  if (!audioContext) {
+    audioContext = new AudioContext()
+  }
+
+  if (audioContext.state === 'suspended') {
+    await audioContext.resume()
+  }
+
+  tonAktiv.value = true
+
+  protokolliere(
+    'Akustische Signalisierung aktiviert',
+    'system',
+  )
+
+  if (eingehenderNotruf.value) {
+    starteKlingelTon()
+  }
+}
+
+function kurzerTon(frequenz, startOffset) {
+  if (!audioContext || !tonAktiv.value) {
+    return
+  }
+
+  const oscillator = audioContext.createOscillator()
+  const gain = audioContext.createGain()
+
+  const start =
+    audioContext.currentTime + startOffset
+
+  oscillator.type = 'sine'
+  oscillator.frequency.value = frequenz
+
+  gain.gain.setValueAtTime(0.0001, start)
+
+  gain.gain.exponentialRampToValueAtTime(
+    0.08,
+    start + 0.02,
+  )
+
+  gain.gain.exponentialRampToValueAtTime(
+    0.0001,
+    start + 0.22,
+  )
+
+  oscillator.connect(gain)
+  gain.connect(audioContext.destination)
+
+  oscillator.start(start)
+  oscillator.stop(start + 0.25)
+}
+
+function spieleKlingelTon() {
+  if (!tonAktiv.value || !audioContext) {
+    return
+  }
+
+  kurzerTon(880, 0)
+  kurzerTon(660, 0.28)
+}
+
+function starteKlingelTon() {
+  stoppeKlingelTon()
+
+  spieleKlingelTon()
+
+  klingelTonIntervall = setInterval(() => {
+    spieleKlingelTon()
+  }, 1600)
+}
+
+function stoppeKlingelTon() {
+  if (klingelTonIntervall) {
+    clearInterval(klingelTonIntervall)
+    klingelTonIntervall = null
+  }
+}
 
 // Timer bis zum nächsten Anruf
 let naechsterNotrufTimer = null
@@ -206,14 +343,46 @@ function planeNaechstenNotruf() {
 }
 
 function starteEingehendenNotruf() {
-  if (notrufDialog.value || eingehenderNotruf.value) {
+  if (
+    notrufDialog.value ||
+    eingehenderNotruf.value
+  ) {
     return
   }
 
-  wartendesSzenario.value = zufaelligesSzenario()
+  wartendesSzenario.value =
+    zufaelligesSzenario()
 
   klingelSekunden.value = 0
   eingehenderNotruf.value = true
+
+  protokolliere(
+    'Eingehender Notruf auf Leitung 112',
+    'notruf',
+  )
+
+  starteKlingelTon()
+}
+
+function notrufVerpasst() {
+  if (!eingehenderNotruf.value) {
+    return
+  }
+
+  stoppeKlingelTon()
+
+  eingehenderNotruf.value = false
+  klingelSekunden.value = 0
+  wartendesSzenario.value = null
+
+  verpassteAnrufe.value++
+
+  protokolliere(
+    'Notruf nicht angenommen – Anruf verpasst',
+    'warnung',
+  )
+
+  planeNaechstenNotruf()
 }
 
 // Nur zum Testen während der Entwicklung
@@ -226,6 +395,14 @@ function testNotrufJetzt() {
 }
 
 function notrufAnnehmen() {
+  const annahmezeit = klingelDauer.value
+
+stoppeKlingelTon()
+
+protokolliere(
+  `Notruf nach ${annahmezeit} angenommen`,
+  'erfolg',
+)
   if (wartendesSzenario.value) {
     aktuellesSzenario.value = wartendesSzenario.value
   } else {
@@ -266,11 +443,18 @@ function notrufAnnehmen() {
 
 
 function notrufBeenden() {
+  stoppeKlingelTon()
+
   notrufDialog.value = false
   notrufSekunden.value = 0
   aktuellesSzenario.value = null
   gespraech.value = []
   frage.value = ''
+
+  protokolliere(
+    'Notrufgespräch ohne Einsatzeröffnung beendet',
+    'info',
+  )
 
   planeNaechstenNotruf()
 }
@@ -405,6 +589,11 @@ function einsatzAusNotrufErstellen() {
 
   ausgewaehlterEinsatzId.value = neueId
 
+  protokolliere(
+  `Einsatz #${neueId} eröffnet – ${notrufDaten.value.meldung.trim()}`,
+  'einsatz',
+)
+
   notrufDialog.value = false
   notrufSekunden.value = 0
   aktuellesSzenario.value = null
@@ -459,6 +648,10 @@ function einsatzAnlegen() {
   })
 
   ausgewaehlterEinsatzId.value = neueId
+  protokolliere(
+  `Einsatz #${neueId} manuell eröffnet – ${neuerEinsatzDaten.value.meldung}`,
+  'einsatz',
+)
   neuerEinsatzDialog.value = false
 }
 
@@ -578,7 +771,8 @@ function istFahrzeugDeaktiviert(fahrzeug) {
 // --------------------------------------------------
 
 function alarmieren() {
-  const einsatz = ausgewaehlterEinsatz.value
+  const einsatz =
+    ausgewaehlterEinsatz.value
 
   if (!einsatz) {
     return
@@ -593,13 +787,31 @@ function alarmieren() {
 
   einsatz.status = 'alarmiert'
 
-  fahrzeuge.value.forEach((fahrzeug) => {
-    if (
-      einsatz.fahrzeuge.includes(fahrzeug.id)
-    ) {
+  const alarmierteFahrzeuge =
+    fahrzeuge.value.filter((fahrzeug) =>
+      einsatz.fahrzeuge.includes(
+        fahrzeug.id,
+      ),
+    )
+
+  alarmierteFahrzeuge.forEach(
+    (fahrzeug) => {
       fahrzeug.status = 3
-    }
-  })
+    },
+  )
+
+  const fahrzeugNamen =
+    alarmierteFahrzeuge
+      .map(
+        (fahrzeug) =>
+          fahrzeug.funkrufname,
+      )
+      .join(', ')
+
+  protokolliere(
+    `Einsatz #${einsatz.id}: ${fahrzeugNamen} alarmiert`,
+    'alarm',
+  )
 }
 
 // --------------------------------------------------
@@ -631,13 +843,68 @@ function statusText(status) {
       </div>
 
       <div class="systemstatus">
-        <span class="onlinepunkt"></span>
-        ONLINE
-        <strong>{{ uhrzeit }}</strong>
-      </div>
+  <button
+    class="tonbutton"
+    :class="{ aktiv: tonAktiv }"
+    @click="tonAktivieren"
+  >
+    {{
+      tonAktiv
+        ? '🔊 Ton aktiv'
+        : '🔇 Ton aktivieren'
+    }}
+  </button>
+
+  <span
+    v-if="verpassteAnrufe > 0"
+    class="verpasst-badge"
+  >
+    Verpasst: {{ verpassteAnrufe }}
+  </span>
+
+  <span class="onlinepunkt"></span>
+
+  ONLINE
+
+  <strong>{{ uhrzeit }}</strong>
+</div>
     </header>
 
     <main class="arbeitsbereich">
+
+      <section class="ereignisprotokoll">
+  <div class="ereignis-kopf">
+    <h2>Systemchronik</h2>
+
+    <span>
+      {{ ereignisse.length }} Ereignisse
+    </span>
+  </div>
+
+  <div class="ereignisliste">
+    <div
+      v-if="ereignisse.length === 0"
+      class="keine-ereignisse"
+    >
+      Noch keine Ereignisse vorhanden.
+    </div>
+
+    <div
+      v-for="ereignis in ereignisse"
+      :key="ereignis.id"
+      class="ereigniszeile"
+      :class="ereignis.typ"
+    >
+      <span class="ereigniszeit">
+        {{ ereignis.zeit }}
+      </span>
+
+      <span>
+        {{ ereignis.text }}
+      </span>
+    </div>
+  </div>
+</section>
       <!-- EINSÄTZE -->
 
       <section class="panel">
