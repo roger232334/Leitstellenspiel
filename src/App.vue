@@ -15,6 +15,7 @@ import LeitstellenKarte from './components/LeitstellenKarte.vue'
 import FahrzeugUebersicht from './components/FahrzeugUebersicht.vue'
 import EinsatzListe from './components/EinsatzListe.vue'
 import EinsatzDetails from './components/EinsatzDetails.vue'
+import SystemChronik from './components/SystemChronik.vue'
 // --------------------------------------------------
 // UHRZEIT
 // --------------------------------------------------
@@ -1521,39 +1522,9 @@ async function alarmieren() {
 
     <main class="arbeitsbereich">
 
-      <section class="ereignisprotokoll">
-  <div class="ereignis-kopf">
-    <h2>Systemchronik</h2>
-
-    <span>
-      {{ ereignisse.length }} Ereignisse
-    </span>
-  </div>
-
-  <div class="ereignisliste">
-    <div
-      v-if="ereignisse.length === 0"
-      class="keine-ereignisse"
-    >
-      Noch keine Ereignisse vorhanden.
-    </div>
-
-    <div
-      v-for="ereignis in ereignisse"
-      :key="ereignis.id"
-      class="ereigniszeile"
-      :class="ereignis.typ"
-    >
-      <span class="ereigniszeit">
-        {{ ereignis.zeit }}
-      </span>
-
-      <span>
-        {{ ereignis.text }}
-      </span>
-    </div>
-  </div>
-</section>
+  <SystemChronik
+  :ereignisse="ereignisse"
+/>
       <!-- EINSÄTZE -->
 
       <section class="panel">
