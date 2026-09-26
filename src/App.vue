@@ -13,6 +13,7 @@ import { adresseGeocodieren } from './services/geocoding.js'
 
 import LeitstellenKarte from './components/LeitstellenKarte.vue'
 import FahrzeugUebersicht from './components/FahrzeugUebersicht.vue'
+import EinsatzListe from './components/EinsatzListe.vue'
 // --------------------------------------------------
 // UHRZEIT
 // --------------------------------------------------
@@ -788,6 +789,7 @@ einsaetze.value.push({
 // --------------------------------------------------
 
 const neuerEinsatzDialog = ref(false)
+const bearbeiteterEinsatzId = ref(null)
 
 const neuerEinsatzDaten = ref({
   meldung: '',
@@ -797,11 +799,30 @@ const neuerEinsatzDaten = ref({
 })
 
 function neuerEinsatz() {
+  bearbeiteterEinsatzId.value = null
+
   neuerEinsatzDaten.value = {
     meldung: '',
     ort: '',
     stichwort: '',
     bemerkung: '',
+  }
+
+  neuerEinsatzDialog.value = true
+}
+function einsatzBearbeiten(einsatz) {
+  if (!einsatz) {
+    return
+  }
+
+  bearbeiteterEinsatzId.value =
+    einsatz.id
+
+  neuerEinsatzDaten.value = {
+    meldung: einsatz.meldung,
+    ort: einsatz.ort,
+    stichwort: einsatz.stichwort,
+    bemerkung: einsatz.bemerkung,
   }
 
   neuerEinsatzDialog.value = true
@@ -835,15 +856,12 @@ async function einsatzAnlegen() {
     )
 
     protokolliere(
-      'Adresssuche nicht verfügbar – Einsatz wird ohne Kartenposition angelegt',
+      'Adresssuche nicht verfügbar.',
       'warnung',
     )
   } finally {
     geocodierungLaeuft.value = false
   }
-
-  const neueId =
-    naechsteEinsatzId()
 
   const position = geocode
     ? {
@@ -852,20 +870,71 @@ async function einsatzAnlegen() {
       }
     : null
 
+  // ------------------------------------------
+  // BESTEHENDEN EINSATZ BEARBEITEN
+  // ------------------------------------------
+
+  if (bearbeiteterEinsatzId.value !== null) {
+    const einsatz =
+      einsaetze.value.find(
+        (eintrag) =>
+          eintrag.id ===
+          bearbeiteterEinsatzId.value,
+      )
+
+    if (!einsatz) {
+      return
+    }
+
+    einsatz.meldung =
+      neuerEinsatzDaten.value.meldung.trim()
+
+    einsatz.ort =
+      neuerEinsatzDaten.value.ort.trim()
+
+    einsatz.stichwort =
+      neuerEinsatzDaten.value.stichwort.trim()
+
+    einsatz.bemerkung =
+      neuerEinsatzDaten.value.bemerkung.trim()
+
+    // Nur ersetzen, wenn eine neue Position
+    // erfolgreich gefunden wurde.
+    if (position) {
+      einsatz.position = position
+    }
+
+    protokolliere(
+      `Einsatz #${einsatz.id} bearbeitet`,
+      'einsatz',
+    )
+
+    neuerEinsatzDialog.value = false
+    bearbeiteterEinsatzId.value = null
+
+    return
+  }
+
+  // ------------------------------------------
+  // NEUEN EINSATZ ANLEGEN
+  // ------------------------------------------
+
+  const neueId = naechsteEinsatzId()
+
   einsaetze.value.push({
     id: neueId,
 
     meldung:
-      neuerEinsatzDaten.value.meldung,
+      neuerEinsatzDaten.value.meldung.trim(),
 
     ort:
-      neuerEinsatzDaten.value.ort,
+      neuerEinsatzDaten.value.ort.trim(),
 
     stichwort:
-      neuerEinsatzDaten.value.stichwort,
+      neuerEinsatzDaten.value.stichwort.trim(),
 
     bemerkung:
-      neuerEinsatzDaten.value.bemerkung,
+      neuerEinsatzDaten.value.bemerkung.trim(),
 
     status: 'offen',
     fahrzeuge: [],
@@ -879,18 +948,6 @@ async function einsatzAnlegen() {
     `Einsatz #${neueId} manuell eröffnet – ${neuerEinsatzDaten.value.meldung}`,
     'einsatz',
   )
-
-  if (geocode) {
-    protokolliere(
-      `Einsatz #${neueId}: Adresse gefunden – ${geocode.displayName}`,
-      'system',
-    )
-  } else {
-    protokolliere(
-      `Einsatz #${neueId}: Keine Kartenposition für "${neuerEinsatzDaten.value.ort}" gefunden`,
-      'warnung',
-    )
-  }
 
   neuerEinsatzDialog.value = false
 }
@@ -1487,45 +1544,12 @@ async function alarmieren() {
   Testanruf jetzt
 </button>
 
-        <div class="einsatzliste">
-          <button
-            v-for="einsatz in einsaetze"
-            :key="einsatz.id"
-            class="einsatz"
-            :class="{
-              aktiv:
-                einsatz.id ===
-                ausgewaehlterEinsatzId,
-            }"
-            @click="einsatzAuswaehlen(einsatz.id)"
-          >
-            <div class="einsatznummer">
-              #{{ einsatz.id }}
-            </div>
-
-            <strong>
-              {{ einsatz.meldung }}
-            </strong>
-
-            <span>
-              {{ einsatz.ort }}
-            </span>
-
-            <span
-              class="einsatzstatus"
-              :class="einsatz.status"
-            >
-              {{ einsatz.status }}
-            </span>
-          </button>
-        </div>
-
-        <button
-          class="hauptbutton"
-          @click="neuerEinsatz"
-        >
-          + Manueller Einsatz
-        </button>
+    <EinsatzListe
+  :einsaetze="einsaetze"
+  :ausgewaehlter-einsatz-id="ausgewaehlterEinsatzId"
+  @einsatz-auswaehlen="einsatzAuswaehlen"
+  @neuer-einsatz="neuerEinsatz"
+/>
       </section>
 
       <!-- EINSATZDETAILS -->
@@ -1584,7 +1608,16 @@ async function alarmieren() {
             }}
           </div>
         </div>
-
+<button
+  class="bearbeitenbutton"
+  @click="
+    einsatzBearbeiten(
+      ausgewaehlterEinsatz
+    )
+  "
+>
+  ✎ Einsatz bearbeiten
+</button>
         <h3>Fahrzeuge disponieren</h3>
 
         <div class="fahrzeugauswahl">
@@ -1870,19 +1903,25 @@ async function alarmieren() {
       v-if="neuerEinsatzDialog"
       class="dialog-hintergrund"
       @click.self="
-        neuerEinsatzDialog = false
-      "
+        neuerEinsatzDialog = false;
+        bearbeiteterEinsatzId = null     
+         "
     >
       <div class="dialog">
         <div class="dialog-kopf">
           <h2>
-            Manuellen Einsatz anlegen
-          </h2>
+  {{
+    bearbeiteterEinsatzId !== null
+      ? `Einsatz #${bearbeiteterEinsatzId} bearbeiten`
+      : 'Manuellen Einsatz anlegen'
+  }}
+</h2>
 
           <button
             class="dialog-schliessen"
             @click="
-              neuerEinsatzDialog = false
+              neuerEinsatzDialog = false;
+              bearbeiteterEinsatzId = null
             "
           >
             ×
@@ -1941,7 +1980,7 @@ async function alarmieren() {
             Abbrechen
           </button>
 
-         <button
+  <button
   class="speichernbutton"
   :disabled="geocodierungLaeuft"
   @click="einsatzAnlegen"
@@ -1949,7 +1988,9 @@ async function alarmieren() {
   {{
     geocodierungLaeuft
       ? 'Adresse wird gesucht...'
-      : 'Einsatz anlegen'
+      : bearbeiteterEinsatzId !== null
+        ? 'Änderungen speichern'
+        : 'Einsatz anlegen'
   }}
 </button>
         </div>

@@ -1248,3 +1248,24 @@ button {
   font-size: 10px !important;
   font-weight: 600;
 }
+.bearbeitenbutton {
+  width: 100%;
+
+  margin: 8px 0 14px 0;
+  padding: 9px 12px;
+
+  background: #263946;
+  color: #b9ceda;
+
+  border: 1px solid #3e5665;
+  border-radius: 4px;
+
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.bearbeitenbutton:hover {
+  background: #304a5a;
+  color: white;
+}
