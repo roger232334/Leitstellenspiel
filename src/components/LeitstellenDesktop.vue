@@ -40,7 +40,9 @@ const emit = defineEmits([
   'einsatz-auswaehlen',
   'fahrzeug-auswaehlen',
   'alarmieren',
+  'auto-split',
   'schliessen',
+  'vorschlag',
 ])
 
 
@@ -170,11 +172,27 @@ function stichwortWert(
     ]
 
   if (neuesStichwort) {
+    // Neues Datenmodell:
+    // komplettes Stichwortobjekt
+    if (
+      typeof neuesStichwort ===
+      'object'
+    ) {
+      return (
+        neuesStichwort.stichwort ||
+        ''
+      )
+    }
+
+    // Fallback, falls später doch
+    // einmal nur Text gespeichert ist
     return neuesStichwort
   }
 
-  // Unterstützung für bisherige Einsätze,
-  // die nur "stichwort" besitzen.
+  // --------------------------------
+  // Alte Einsätze weiterhin anzeigen
+  // --------------------------------
+
   const altesStichwort =
     (
       einsatz.stichwort || ''
@@ -183,7 +201,6 @@ function stichwortWert(
   const gross =
     altesStichwort.toUpperCase()
 
-  // Brand
   if (
     kategorie === 'B' &&
     (
@@ -194,7 +211,6 @@ function stichwortWert(
     return altesStichwort
   }
 
-  // Technische Hilfeleistung
   if (
     kategorie === 'T' &&
     (
@@ -205,7 +221,6 @@ function stichwortWert(
     return altesStichwort
   }
 
-  // Rettungsdienst
   if (
     kategorie === 'R' &&
     (
@@ -285,6 +300,21 @@ function hatNeueFahrzeuge() {
         )
       )
     },
+  )
+}
+function dispoFahrzeuge() {
+  const einsatz =
+    props.ausgewaehlterEinsatz
+
+  if (!einsatz) {
+    return []
+  }
+
+  return props.fahrzeuge.filter(
+    (fahrzeug) =>
+      einsatz.fahrzeuge?.includes(
+        fahrzeug.id,
+      ),
   )
 }
 </script>
@@ -531,8 +561,20 @@ function hatNeueFahrzeuge() {
 </thead>
 
         <tbody>
+          <tr
+  v-if="
+    dispoFahrzeuge().length === 0
+  "
+>
+  <td
+    colspan="5"
+    class="dispo-leer"
+  >
+    Noch kein Einsatzmittelvorschlag.
+  </td>
+</tr>
   <tr
-  v-for="fahrzeug in fahrzeuge"
+  v-for="fahrzeug in dispoFahrzeuge()"
   :key="fahrzeug.id"
   :class="{
     ausgewaehlt:
@@ -620,6 +662,18 @@ function hatNeueFahrzeuge() {
 
         <div class="funktionsleiste">
           <button
+  :disabled="
+    !ausgewaehlterEinsatz ||
+    ausgewaehlterEinsatz.typ !==
+      'unter' ||
+    ausgewaehlterEinsatz.status ===
+      'abgeschlossen'
+  "
+  @click="emit('vorschlag')"
+>
+  Vorschlag
+</button>
+          <button
   class="primaer"
   :disabled="
     !ausgewaehlterEinsatz ||
@@ -642,6 +696,17 @@ function hatNeueFahrzeuge() {
   @click="emit('alarmieren')"
 >
   Nachalarm.
+  
+</button>
+<button
+  :disabled="
+    !ausgewaehlterEinsatz ||
+    ausgewaehlterEinsatz.typ !== 'haupt' ||
+    ausgewaehlterEinsatz.autoSplitErfolgt
+  "
+  @click="emit('auto-split')"
+>
+  Auto-Split
 </button>
 
           <button>
@@ -1465,5 +1530,16 @@ button.primaer {
   opacity: 0.45;
   cursor: default;
   background: #d5d7d8;
+}
+.dispo-leer {
+  height: 55px;
+  padding: 10px;
+
+  text-align: center;
+
+  color: #5f676b;
+  font-style: italic;
+
+  background: #f3f4f4;
 }
 </style>

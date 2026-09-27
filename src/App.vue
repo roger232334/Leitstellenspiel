@@ -1,3 +1,6 @@
+
+
+
 <script setup>
 import {
   computed,
@@ -17,6 +20,13 @@ import EinsatzListe from './components/EinsatzListe.vue'
 import EinsatzDetails from './components/EinsatzDetails.vue'
 import SystemChronik from './components/SystemChronik.vue'
 import LeitstellenDesktop from './components/LeitstellenDesktop.vue'
+import {
+  findeMeldebildNachName,
+  loeseMeldebildAuf,
+} from './data/meldebilder.js'
+import {
+  findeAaoRegel,
+} from './data/aaoRegeln.js'
 // --------------------------------------------------
 // UHRZEIT
 // --------------------------------------------------
@@ -92,6 +102,7 @@ const fahrzeuge = ref([
     id: 1,
     funkrufname: 'RK Regensburg 71/1',
     typ: 'RTW',
+    bereich: 'RD',
     status: 2,
      statusZeiten: {
     1: null,
@@ -119,6 +130,7 @@ const fahrzeuge = ref([
     funkrufname: 'RK Regensburg 71/2',
     typ: 'RTW',
     status: 2,
+    bereich: 'RD',
     einsatzId: null,
     naechsterStatusIn: 0,
 
@@ -136,6 +148,7 @@ const fahrzeuge = ref([
     id: 3,
     funkrufname: 'RK Regensburg 76/1',
     typ: 'NEF',
+    bereich: 'RD',
     status: 1,
     einsatzId: null,
     naechsterStatusIn: 0,
@@ -154,6 +167,7 @@ const fahrzeuge = ref([
     id: 4,
     funkrufname: 'Florian Regensburg 40/1',
     typ: 'HLF',
+    bereich: 'FW',
     status: 2,
     einsatzId: null,
     naechsterStatusIn: 0,
@@ -263,6 +277,447 @@ function naechsteEinsatzId() {
   ) + 1
 }
 
+// --------------------------------------------------
+// EINSATZSTRUKTUR / MELDEBILDER
+// --------------------------------------------------
+
+function leereStichwoerter() {
+  return {
+    B: null,
+    T: null,
+    ABC: null,
+    R: null,
+    SON: null,
+    INF: null,
+  }
+}
+
+
+function meldebildStichwoerter(
+  meldung,
+) {
+  const meldebild =
+    findeMeldebildNachName(
+      meldung,
+    )
+
+  if (!meldebild) {
+    return leereStichwoerter()
+  }
+
+  const aufgeloest =
+    loeseMeldebildAuf(
+      meldebild,
+    )
+
+  return {
+    ...leereStichwoerter(),
+    ...aufgeloest.stichwoerter,
+  }
+}
+
+
+function hatStichwort(
+  einsatz,
+  bereich,
+) {
+  return Boolean(
+    einsatz?.stichwoerter?.[
+      bereich
+    ],
+  )
+}
+function autoSplitEinsatz() {
+  const haupteinsatz =
+    ausgewaehlterEinsatz.value
+
+  if (!haupteinsatz) {
+    return
+  }
+
+  if (
+    haupteinsatz.typ !==
+    'haupt'
+  ) {
+    alert(
+      'Auto-Split ist nur bei einem Haupteinsatz möglich.',
+    )
+    return
+  }
+
+  if (
+    haupteinsatz.autoSplitErfolgt
+  ) {
+    alert(
+      'Dieser Einsatz wurde bereits aufgeteilt.',
+    )
+    return
+  }
+
+  const neueUntereinsaetze = []
+
+  // --------------------------------
+  // Feuerwehr
+  // --------------------------------
+
+  const hatFwStichwort =
+    hatStichwort(
+      haupteinsatz,
+      'B',
+    ) ||
+    hatStichwort(
+      haupteinsatz,
+      'T',
+    ) ||
+    hatStichwort(
+      haupteinsatz,
+      'ABC',
+    ) ||
+    hatStichwort(
+      haupteinsatz,
+      'SON',
+    )
+
+  if (hatFwStichwort) {
+    const id =
+      naechsteEinsatzId()
+
+    const fwEinsatz = {
+      id,
+
+      typ: 'unter',
+      bereich: 'FW',
+
+      parentId:
+        haupteinsatz.id,
+
+      meldung:
+        haupteinsatz.meldung,
+
+      ort:
+        haupteinsatz.ort,
+
+      bemerkung:
+        haupteinsatz.bemerkung,
+
+      position:
+        haupteinsatz.position
+          ? {
+              ...haupteinsatz.position,
+            }
+          : null,
+
+      stichwoerter: {
+        B:
+          haupteinsatz
+            .stichwoerter.B,
+
+        T:
+          haupteinsatz
+            .stichwoerter.T,
+
+        ABC:
+          haupteinsatz
+            .stichwoerter.ABC,
+
+        R: null,
+
+        SON:
+          haupteinsatz
+            .stichwoerter.SON,
+
+        INF: null,
+      },
+
+      status: 'offen',
+      fahrzeuge: [],
+
+      untereinsatzIds: [],
+      autoSplitErfolgt: false,
+    }
+
+    einsaetze.value.push(
+      fwEinsatz,
+    )
+
+    neueUntereinsaetze.push(
+      id,
+    )
+
+    protokolliere(
+      `FW-Untereinsatz #${id} aus Haupteinsatz #${haupteinsatz.id} erzeugt`,
+      'einsatz',
+    )
+  }
+
+  // --------------------------------
+  // Rettungsdienst
+  // --------------------------------
+
+  if (
+    hatStichwort(
+      haupteinsatz,
+      'R',
+    )
+  ) {
+    const id =
+      naechsteEinsatzId()
+
+    const rdEinsatz = {
+      id,
+
+      typ: 'unter',
+      bereich: 'RD',
+
+      parentId:
+        haupteinsatz.id,
+
+      meldung:
+        haupteinsatz.meldung,
+
+      ort:
+        haupteinsatz.ort,
+
+      bemerkung:
+        haupteinsatz.bemerkung,
+
+      position:
+        haupteinsatz.position
+          ? {
+              ...haupteinsatz.position,
+            }
+          : null,
+
+      stichwoerter: {
+        B: null,
+        T: null,
+        ABC: null,
+
+        R:
+          haupteinsatz
+            .stichwoerter.R,
+
+        SON: null,
+        INF: null,
+      },
+
+      status: 'offen',
+      fahrzeuge: [],
+
+      untereinsatzIds: [],
+      autoSplitErfolgt: false,
+    }
+
+    einsaetze.value.push(
+      rdEinsatz,
+    )
+
+    neueUntereinsaetze.push(
+      id,
+    )
+
+    protokolliere(
+      `RD-Untereinsatz #${id} aus Haupteinsatz #${haupteinsatz.id} erzeugt`,
+      'einsatz',
+    )
+  }
+
+  if (
+    neueUntereinsaetze.length ===
+    0
+  ) {
+    alert(
+      'Für diesen Einsatz sind keine Stichwörter zum Aufteilen hinterlegt.',
+    )
+    return
+  }
+
+  haupteinsatz.untereinsatzIds =
+    neueUntereinsaetze
+
+  haupteinsatz.autoSplitErfolgt =
+    true
+
+  protokolliere(
+    `Auto-Split für Einsatz #${haupteinsatz.id} durchgeführt`,
+    'einsatz',
+  )
+}
+
+function vorschlagErzeugen() {
+  console.log(
+    'VORSCHLAG-FUNKTION WURDE AUFGERUFEN',
+  )
+
+  const einsatz =
+    ausgewaehlterEinsatz.value
+
+  if (!einsatz) {
+    return
+  }
+
+  if (einsatz.typ !== 'unter') {
+    alert(
+      'Ein Einsatzmittelvorschlag wird für einen Untereinsatz erstellt.',
+    )
+
+    return
+  }
+
+  if (
+    einsatz.status ===
+    'abgeschlossen'
+  ) {
+    return
+  }
+
+  const relevanteStichwoerter = []
+
+  if (einsatz.bereich === 'FW') {
+    const fwBereiche = [
+      'B',
+      'T',
+      'ABC',
+      'SON',
+    ]
+
+    fwBereiche.forEach(
+      (bereich) => {
+        const stichwort =
+          einsatz.stichwoerter?.[
+            bereich
+          ]
+
+        if (stichwort) {
+          relevanteStichwoerter.push(
+            stichwort,
+          )
+        }
+      },
+    )
+  }
+
+  if (
+    einsatz.bereich === 'RD' &&
+    einsatz.stichwoerter?.R
+  ) {
+    relevanteStichwoerter.push(
+      einsatz.stichwoerter.R,
+    )
+  }
+
+  if (
+    relevanteStichwoerter.length ===
+    0
+  ) {
+    alert(
+      'Für diesen Untereinsatz ist kein passendes Stichwort vorhanden.',
+    )
+
+    return
+  }
+
+  const bedarf = []
+
+  relevanteStichwoerter.forEach(
+    (stichwort) => {
+      const regel =
+        findeAaoRegel(
+          stichwort,
+        )
+
+      regel.forEach(
+        (anforderung) => {
+          const vorhanden =
+            bedarf.find(
+              (eintrag) =>
+                eintrag.typ ===
+                anforderung.typ,
+            )
+
+          if (vorhanden) {
+            vorhanden.anzahl +=
+              anforderung.anzahl
+          } else {
+            bedarf.push({
+              ...anforderung,
+            })
+          }
+        },
+      )
+    },
+  )
+
+  if (bedarf.length === 0) {
+    alert(
+      'Für dieses Stichwort ist noch keine AAO-Regel hinterlegt.',
+    )
+
+    return
+  }
+
+  const vorgeschlageneIds = []
+
+  bedarf.forEach(
+    (anforderung) => {
+      const kandidaten =
+        fahrzeuge.value.filter(
+          (fahrzeug) => {
+            return (
+              fahrzeug.typ ===
+                anforderung.typ &&
+              fahrzeug.bereich ===
+                einsatz.bereich &&
+              (
+                fahrzeug.status === 1 ||
+                fahrzeug.status === 2
+              ) &&
+              fahrzeug.einsatzId ===
+                null
+            )
+          },
+        )
+
+      kandidaten
+        .slice(
+          0,
+          anforderung.anzahl,
+        )
+        .forEach(
+          (fahrzeug) => {
+            vorgeschlageneIds.push(
+              fahrzeug.id,
+            )
+          },
+        )
+    },
+  )
+
+  if (
+    vorgeschlageneIds.length ===
+    0
+  ) {
+    alert(
+      'Keine passenden verfügbaren Einsatzmittel gefunden.',
+    )
+
+    return
+  }
+
+  einsatz.fahrzeuge = [
+    ...new Set(
+      vorgeschlageneIds,
+    ),
+  ]
+
+  einsatz.vorschlagErstellt =
+    true
+
+  protokolliere(
+    `Einsatzmittelvorschlag für Einsatz #${einsatz.id} erstellt`,
+    'einsatz',
+  )
+}
 // --------------------------------------------------
 // NOTRUF
 // --------------------------------------------------
@@ -770,15 +1225,38 @@ const position = geocode
       ] ?? null
     )
 
+const stichwoerter =
+  meldebildStichwoerter(
+    notrufDaten.value.meldung.trim(),
+  )
+
 einsaetze.value.push({
   id: neueId,
-  meldung: notrufDaten.value.meldung.trim(),
-  ort: adresseTeile.join(', '),
-  stichwort: notrufDaten.value.stichwort.trim(),
-  bemerkung: bemerkungen.join('\n'),
-  status: 'offen',
-  fahrzeuge: [],
+
+  typ: 'haupt',
+  bereich: null,
+  parentId: null,
+
+  meldung:
+    notrufDaten.value.meldung.trim(),
+
+  ort:
+    adresseTeile.join(', '),
+
+  bemerkung:
+    bemerkungen.join('\n'),
+
   position,
+
+  stichwoerter,
+
+  status: 'offen',
+
+  fahrzeuge: [],
+
+  untereinsatzIds: [],
+
+  autoSplitErfolgt: false,
 })
 
   ausgewaehlterEinsatzId.value = neueId
@@ -933,26 +1411,49 @@ async function einsatzAnlegen() {
 
   const neueId = naechsteEinsatzId()
 
-  einsaetze.value.push({
-    id: neueId,
+const stichwoerter =
+  meldebildStichwoerter(
+    neuerEinsatzDaten.value.meldung,
+  )
 
-    meldung:
-      neuerEinsatzDaten.value.meldung.trim(),
+einsaetze.value.push({
+  id: neueId,
 
-    ort:
-      neuerEinsatzDaten.value.ort.trim(),
+  typ: 'haupt',
+  bereich: null,
+  parentId: null,
 
-    stichwort:
-      neuerEinsatzDaten.value.stichwort.trim(),
+  meldung:
+    neuerEinsatzDaten.value.meldung,
 
-    bemerkung:
-      neuerEinsatzDaten.value.bemerkung.trim(),
+  ort:
+    neuerEinsatzDaten.value.ort,
 
-    status: 'offen',
-    fahrzeuge: [],
-    position,
-  })
+  bemerkung:
+    neuerEinsatzDaten.value.bemerkung,
 
+  position,
+
+  stichwoerter,
+
+  status: 'offen',
+
+  fahrzeuge: [],
+
+  untereinsatzIds: [],
+
+  autoSplitErfolgt: false,
+})
+
+ausgewaehlterEinsatzId.value =
+  neueId
+
+protokolliere(
+  `Haupteinsatz #${neueId} manuell eröffnet – ${neuerEinsatzDaten.value.meldung}`,
+  'einsatz',
+)
+
+neuerEinsatzDialog.value = false
   ausgewaehlterEinsatzId.value =
     neueId
 
@@ -1554,7 +2055,9 @@ async function alarmieren() {
     @einsatz-auswaehlen="einsatzAuswaehlen"
     @fahrzeug-auswaehlen="fahrzeugAuswaehlen"
     @alarmieren="alarmieren"
+    @auto-split="autoSplitEinsatz"
     @schliessen="neuesLayoutAktiv = false"
+    @vorschlag="vorschlagErzeugen"
   />
     <header class="kopfzeile">
       <div>
