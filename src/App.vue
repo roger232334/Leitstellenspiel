@@ -16,11 +16,13 @@ import FahrzeugUebersicht from './components/FahrzeugUebersicht.vue'
 import EinsatzListe from './components/EinsatzListe.vue'
 import EinsatzDetails from './components/EinsatzDetails.vue'
 import SystemChronik from './components/SystemChronik.vue'
+import LeitstellenDesktop from './components/LeitstellenDesktop.vue'
 // --------------------------------------------------
 // UHRZEIT
 // --------------------------------------------------
 
 const uhrzeit = ref('')
+const neuesLayoutAktiv = ref(false)
 
 function aktualisiereUhrzeit() {
   uhrzeit.value = new Date().toLocaleTimeString('de-DE', {
@@ -91,6 +93,14 @@ const fahrzeuge = ref([
     funkrufname: 'RK Regensburg 71/1',
     typ: 'RTW',
     status: 2,
+     statusZeiten: {
+    1: null,
+    2: '14:02:16',
+    3: null,
+    4: null,
+    7: null,
+    8: null,
+  },
     einsatzId: null,
     naechsterStatusIn: 0,
 
@@ -1006,7 +1016,31 @@ function fahrzeugHinweis(fahrzeug) {
 
   return 'Nicht verfügbar'
 }
+// --------------------------------------------------
+// FAHRZEUGSTATUS + ZEITSTEMPEL
+// --------------------------------------------------
 
+function setzeFahrzeugStatus(
+  fahrzeug,
+  neuerStatus,
+) {
+  fahrzeug.status = neuerStatus
+
+  if (!fahrzeug.statusZeiten) {
+    fahrzeug.statusZeiten = {}
+  }
+
+  fahrzeug.statusZeiten[
+    neuerStatus
+  ] = new Date().toLocaleTimeString(
+    'de-DE',
+    {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    },
+  )
+}
 // --------------------------------------------------
 // DISPOSITION
 // --------------------------------------------------
@@ -1181,7 +1215,10 @@ function aktualisiereFahrzeugEinsaetze() {
         fahrzeug.routeSchritt = 0
         fahrzeug.routeSchritte = 0
 
-        fahrzeug.status = 4
+        setzeFahrzeugStatus(
+  fahrzeug,
+  4,
+)
 
         fahrzeug.naechsterStatusIn =
           zufallsSekunden(15, 30)
@@ -1206,7 +1243,10 @@ function aktualisiereFahrzeugEinsaetze() {
       }
 
       if (fahrzeug.naechsterStatusIn <= 0) {
-        fahrzeug.status = 4
+        setzeFahrzeugStatus(
+  fahrzeug,
+  4,
+)
 
         fahrzeug.naechsterStatusIn =
           zufallsSekunden(15, 30)
@@ -1236,7 +1276,10 @@ function naechsteFahrzeugPhase(fahrzeug) {
     fahrzeug.status === 4 &&
     fahrzeug.typ === 'RTW'
   ) {
-    fahrzeug.status = 7
+    setzeFahrzeugStatus(
+  fahrzeug,
+  7,
+)
 
     fahrzeug.naechsterStatusIn =
       zufallsSekunden(12, 25)
@@ -1257,7 +1300,10 @@ function naechsteFahrzeugPhase(fahrzeug) {
 
   // RTW: Status 7 -> Status 8
   if (fahrzeug.status === 7) {
-    fahrzeug.status = 8
+    setzeFahrzeugStatus(
+  fahrzeug,
+  8,
+)
 
     fahrzeug.naechsterStatusIn =
       zufallsSekunden(10, 20)
@@ -1285,15 +1331,21 @@ function fahrzeugEinsatzBeenden(fahrzeug) {
 
   // RD-Fahrzeuge werden über Funk einsatzbereit.
   // Feuerwehr kehrt auf Status 2 zurück.
-  if (
-    fahrzeug.typ === 'RTW' ||
-    fahrzeug.typ === 'NEF' ||
-    fahrzeug.typ === 'KTW'
-  ) {
-    fahrzeug.status = 1
-  } else {
-    fahrzeug.status = 2
-  }
+ if (
+  fahrzeug.typ === 'RTW' ||
+  fahrzeug.typ === 'NEF' ||
+  fahrzeug.typ === 'KTW'
+) {
+  setzeFahrzeugStatus(
+    fahrzeug,
+    1,
+  )
+} else {
+  setzeFahrzeugStatus(
+    fahrzeug,
+    2,
+  )
+}
 
   fahrzeug.einsatzId = null
   fahrzeug.naechsterStatusIn = 0
@@ -1376,7 +1428,10 @@ async function alarmieren() {
   // auf Status 3 setzen.
   zuAlarmierendeFahrzeuge.forEach(
     (fahrzeug) => {
-      fahrzeug.status = 3
+      setzeFahrzeugStatus(
+  fahrzeug,
+  3,
+)
       fahrzeug.einsatzId =
         einsatz.id
 
@@ -1485,7 +1540,22 @@ async function alarmieren() {
 </script>
 
 <template>
-  <div class="leitstelle">
+<div class="leitstelle">
+  <LeitstellenDesktop
+    v-if="neuesLayoutAktiv"
+    :key="'leitstellen-desktop'"
+    :einsaetze="einsaetze"
+    :ausgewaehlter-einsatz-id="ausgewaehlterEinsatzId"
+    :ausgewaehlter-einsatz="ausgewaehlterEinsatz"
+    :fahrzeuge="fahrzeuge"
+    :ereignisse="ereignisse"
+    :uhrzeit="uhrzeit"
+    :ist-fahrzeug-deaktiviert="istFahrzeugDeaktiviert"
+    @einsatz-auswaehlen="einsatzAuswaehlen"
+    @fahrzeug-auswaehlen="fahrzeugAuswaehlen"
+    @alarmieren="alarmieren"
+    @schliessen="neuesLayoutAktiv = false"
+  />
     <header class="kopfzeile">
       <div>
         <h1>ILS SIMULATOR</h1>
@@ -1493,6 +1563,12 @@ async function alarmieren() {
       </div>
 
       <div class="systemstatus">
+        <button
+  class="layoutwechsel-button"
+  @click="neuesLayoutAktiv = true"
+>
+  🖥 ELS-Ansicht
+</button>
   <button
     class="tonbutton"
     :class="{ aktiv: tonAktiv }"

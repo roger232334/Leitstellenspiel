@@ -1269,3 +1269,208 @@ button {
   background: #304a5a;
   color: white;
 }
+.layoutwechsel-button {
+  padding: 6px 10px;
+  background: #263946;
+  color: #d9e8f0;
+  border: 1px solid #4b626f;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.layoutwechsel-button:hover {
+  background: #345264;
+  color: white;
+}
+.stichwort-bereich {
+  padding: 5px 6px;
+}
+
+.stichwort-zeile {
+  display: grid;
+  grid-template-columns: 55px 1fr;
+  gap: 4px;
+  margin-bottom: 3px;
+}
+
+.stichwort-label {
+  display: flex;
+  align-items: center;
+
+  font-weight: bold;
+
+  color: #444;
+}
+
+.stichwort-feld {
+  min-height: 22px;
+
+  padding: 3px 5px;
+
+  border: 1px solid #929ca3;
+
+  background: #fff7a8;
+
+  font-weight: bold;
+}
+.stichwort-bereich {
+  padding: 5px 6px;
+}
+
+.stichwort-zeile {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 5px;
+
+  align-items: center;
+
+  margin-bottom: 4px;
+}
+
+.stichwort-zeile label {
+  font-weight: bold;
+}
+
+.stichwort-zeile input {
+  width: 100%;
+  height: 24px;
+
+  padding: 2px 5px;
+
+  border: 1px solid #929ca3;
+
+  background: #fff69b;
+
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.status-zeile {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 5px;
+
+  align-items: center;
+
+  padding: 0 6px 6px 6px;
+}
+
+.status-zeile label {
+  font-weight: bold;
+}
+
+.einsatz-statusfeld {
+  height: 24px;
+
+  display: flex;
+  align-items: center;
+
+  padding: 2px 6px;
+
+  border: 1px solid #929ca3;
+
+  background: white;
+
+  font-weight: bold;
+}
+
+.einsatz-status-alarmiert {
+  background: #fff69b;
+}
+
+.einsatz-status-abgeschlossen {
+  background: #d8ecd8;
+}
+.statusfolge-zelle {
+  padding: 4px 6px;
+}
+
+.statusfolge {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.statuskasten {
+  width: 62px;
+  height: 40px;
+
+  flex-shrink: 0;
+
+  display: grid;
+  grid-template-rows: 18px 16px;
+
+  align-items: center;
+  justify-items: center;
+
+  border: 1px solid #7d898f;
+
+  background: linear-gradient(
+    #f7f8f8,
+    #d1d6d9
+  );
+
+  box-shadow:
+    inset 1px 1px #ffffff;
+}
+
+.statusnummer {
+  width: 100%;
+
+  text-align: center;
+
+  font-size: 12px;
+  font-weight: bold;
+
+  border-bottom: 1px solid #abb2b6;
+}
+
+.statuszeit {
+  font-family: Consolas, monospace;
+  font-size: 9px;
+
+  color: #42484c;
+}
+
+.statuskasten.aktiv {
+  background: #fff27a;
+
+  border: 2px solid #8b7916;
+}
+
+.statuskasten.aktiv .statusnummer {
+  border-bottom-color: #bbaa34;
+}
+
+.statuskasten.aktiv .statuszeit {
+  color: #000;
+  font-weight: bold;
+}
+
+.dispo tbody tr {
+  height: 48px;
+}
+
+.funkrufname-zelle {
+  width: 220px;
+}
+
+.typ-zelle {
+  width: 65px;
+}
+
+.einsatz-zelle {
+  width: 80px;
+
+  text-align: center;
+}
+
+.alarm-zelle {
+  width: 45px;
+
+  text-align: center;
+
+  font-weight: bold;
+}
