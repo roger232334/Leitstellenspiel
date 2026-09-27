@@ -1,4 +1,12 @@
 <script setup>
+import {
+  computed,
+  ref,
+} from 'vue'
+
+import {
+  stichwortKatalog,
+} from '../data/stichwortKatalog.js'
 const props = defineProps({
   einsaetze: {
     type: Array,
@@ -43,9 +51,108 @@ const emit = defineEmits([
   'auto-split',
   'schliessen',
   'vorschlag',
+  'meldebild-auswaehlen',
 ])
 
+const meldebildSucheOffen =
+  ref(false)
 
+const meldebildSuchtext =
+  ref('')
+
+
+const gefilterteMeldebilder =
+  computed(() => {
+    const suchtext =
+      meldebildSuchtext.value
+        .trim()
+        .toLowerCase()
+
+    const aktiveEintraege =
+      stichwortKatalog.filter(
+        (eintrag) =>
+          eintrag.aktiv !== false,
+      )
+
+    if (!suchtext) {
+      return aktiveEintraege.slice(
+        0,
+        100,
+      )
+    }
+
+    return aktiveEintraege
+      .filter((eintrag) => {
+        const suchbereich = [
+          eintrag.kennung,
+          eintrag.stichwort,
+          eintrag.kategorie,
+          eintrag.schlagwort,
+          eintrag.hauptgruppe,
+          eintrag.untergruppe,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+
+        return suchbereich.includes(
+          suchtext,
+        )
+      })
+      .slice(0, 100)
+  })
+
+
+function meldebildAuswahlOeffnen() {
+  if (
+    !props.ausgewaehlterEinsatz ||
+    props.ausgewaehlterEinsatz.typ !==
+      'haupt' ||
+    props.ausgewaehlterEinsatz
+      .autoSplitErfolgt
+  ) {
+    return
+  }
+
+  meldebildSuchtext.value = ''
+  meldebildSucheOffen.value = true
+}
+
+
+function meldebildAuswahlSchliessen() {
+  meldebildSucheOffen.value = false
+  meldebildSuchtext.value = ''
+}
+
+
+function meldebildAuswaehlen(
+  eintrag,
+) {
+  emit(
+    'meldebild-auswaehlen',
+    eintrag,
+  )
+
+  meldebildAuswahlSchliessen()
+}
+
+
+function meldebildAnzeige(einsatz) {
+  if (!einsatz) {
+    return ''
+  }
+
+  const eintrag =
+    Object.values(
+      einsatz.stichwoerter ?? {},
+    ).find(Boolean)
+
+  return (
+    eintrag?.kennung ||
+    einsatz.meldung ||
+    ''
+  )
+}
 // --------------------------------------------------
 // FAHRZEUGSTATUS
 // --------------------------------------------------
@@ -389,14 +496,26 @@ function dispoFahrzeuge() {
               )
             "
           >
-            <option
-              v-for="einsatz in einsaetze"
-              :key="einsatz.id"
-              :value="einsatz.id"
-            >
-              #{{ einsatz.id }} –
-              {{ einsatz.meldung }}
-            </option>
+        <option
+  v-for="einsatz in einsaetze"
+  :key="einsatz.id"
+  :value="einsatz.id"
+>
+  {{
+    einsatz.typ === 'unter'
+      ? '↳ '
+      : ''
+  }}
+  #{{ einsatz.id }} –
+  {{ einsatz.meldung }}
+  {{
+    einsatz.typ === 'haupt'
+      ? '[HAUPT]'
+      : einsatz.bereich
+        ? `[${einsatz.bereich}]`
+        : ''
+  }}
+</option>
           </select>
         </div>
 
@@ -416,15 +535,98 @@ function dispoFahrzeuge() {
     readonly
   />
 
-  <label>Meldebild</label>
+<label>Meldebild</label>
 
+<div class="meldebild-auswahl">
   <input
-    class="einsatzfeld"
+    class="einsatzfeld meldebild-feld"
     :value="
-      ausgewaehlterEinsatz.meldung
+      meldebildAnzeige(
+        ausgewaehlterEinsatz,
+      )
     "
     readonly
+    :title="
+      ausgewaehlterEinsatz.typ ===
+        'haupt' &&
+      !ausgewaehlterEinsatz
+        .autoSplitErfolgt
+        ? 'Meldebild auswählen'
+        : ''
+    "
+    @click="
+      meldebildAuswahlOeffnen
+    "
   />
+
+  <div
+    v-if="meldebildSucheOffen"
+    class="meldebild-dropdown"
+  >
+    <div
+      class="meldebild-dropdown-kopf"
+    >
+      <input
+        v-model="
+          meldebildSuchtext
+        "
+        type="text"
+        placeholder="Meldebild suchen..."
+        autofocus
+        @keydown.esc="
+          meldebildAuswahlSchliessen
+        "
+      />
+
+      <button
+        type="button"
+        @click="
+          meldebildAuswahlSchliessen
+        "
+      >
+        ×
+      </button>
+    </div>
+
+    <div
+      class="meldebild-ergebnisse"
+    >
+      <button
+        v-for="
+          eintrag in
+          gefilterteMeldebilder
+        "
+        :key="eintrag.id"
+        type="button"
+        class="meldebild-ergebnis"
+        @click="
+          meldebildAuswaehlen(
+            eintrag,
+          )
+        "
+      >
+        <strong>
+          {{ eintrag.kennung }}
+        </strong>
+
+        <span>
+          {{ eintrag.stichwort }}
+        </span>
+      </button>
+
+      <div
+        v-if="
+          gefilterteMeldebilder
+            .length === 0
+        "
+        class="meldebild-kein-treffer"
+      >
+        Kein passendes Meldebild
+        gefunden.
+      </div>
+    </div>
+  </div>
+</div>
 
   <label>Straße / Ort</label>
 
@@ -648,16 +850,57 @@ function dispoFahrzeuge() {
       </strong>
     </td>
 
-    <td class="alarm-zelle">
-      {{
-        fahrzeug.einsatzId
-          ? 'X'
-          : ''
-      }}
-    </td>
+   <td class="alarm-zelle">
+  <span
+    v-if="
+      fahrzeug.einsatzId ===
+      ausgewaehlterEinsatzId
+    "
+    class="alarm-status alarmiert"
+  >
+    Alarmiert
+  </span>
+
+  <span
+    v-else
+    class="alarm-status vorschlag"
+  >
+    Vorschlag
+  </span>
+</td>
   </tr>
 </tbody>
           </table>
+          <div
+  v-if="
+    ausgewaehlterEinsatz?.fehlbedarf?.length
+  "
+  class="fehlbedarf-box"
+>
+  <div class="fehlbedarf-titel">
+    ⚠ Fehlende Einsatzmittel
+  </div>
+
+  <div
+    v-for="(
+      eintrag,
+      index
+    ) in ausgewaehlterEinsatz.fehlbedarf"
+    :key="index"
+    class="fehlbedarf-zeile"
+  >
+    <strong>
+      {{ eintrag.anzahl }} ×
+      {{ eintrag.typ }}
+    </strong>
+
+    <span
+      v-if="eintrag.grund"
+    >
+      – {{ eintrag.grund }}
+    </span>
+  </div>
+</div>
         </div>
 
         <div class="funktionsleiste">
@@ -1541,5 +1784,148 @@ button.primaer {
   font-style: italic;
 
   background: #f3f4f4;
+}
+.alarm-status {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px solid #888;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+.alarm-status.vorschlag {
+  background: #fff2a8;
+  color: #554900;
+}
+
+.alarm-status.alarmiert {
+  background: #b9dfb5;
+  color: #174d16;
+}
+.fehlbedarf-box {
+  border-top: 1px solid #999;
+  border-bottom: 1px solid #999;
+
+  padding: 5px 8px;
+
+  background: #fff3b0;
+
+  font-size: 11px;
+}
+
+.fehlbedarf-titel {
+  margin-bottom: 3px;
+
+  font-weight: bold;
+  color: #8a1f11;
+}
+
+.fehlbedarf-zeile {
+  padding: 2px 0;
+}
+
+.fehlbedarf-zeile strong {
+  color: #a02020;
+}
+.meldebild-auswahl {
+  position: relative;
+  width: 100%;
+}
+
+.meldebild-feld {
+  cursor: pointer;
+}
+
+.meldebild-dropdown {
+  position: absolute;
+
+  top: calc(100% + 2px);
+  left: 0;
+
+  width: 520px;
+  max-width: 80vw;
+
+  z-index: 5000;
+
+  border: 1px solid #777;
+
+  background: #ffffff;
+
+  box-shadow:
+    2px 3px 8px
+    rgba(0, 0, 0, 0.35);
+}
+
+.meldebild-dropdown-kopf {
+  display: flex;
+  gap: 4px;
+
+  padding: 5px;
+
+  background: #dfe7ec;
+
+  border-bottom:
+    1px solid #999;
+}
+
+.meldebild-dropdown-kopf input {
+  flex: 1;
+
+  padding: 5px;
+
+  border: 1px solid #777;
+}
+
+.meldebild-dropdown-kopf button {
+  width: 28px;
+}
+
+.meldebild-ergebnisse {
+  max-height: 320px;
+
+  overflow-y: auto;
+}
+
+.meldebild-ergebnis {
+  display: flex;
+  flex-direction: column;
+
+  width: 100%;
+
+  padding: 6px 8px;
+
+  border: 0;
+  border-bottom:
+    1px solid #ddd;
+
+  text-align: left;
+
+  background: white;
+
+  cursor: pointer;
+}
+
+.meldebild-ergebnis:hover {
+  background: #dcecff;
+}
+
+.meldebild-ergebnis strong {
+  font-size: 11px;
+}
+
+.meldebild-ergebnis span {
+  margin-top: 2px;
+
+  color: #555;
+
+  font-size: 10px;
+}
+
+.meldebild-kein-treffer {
+  padding: 12px;
+
+  text-align: center;
+
+  color: #666;
 }
 </style>

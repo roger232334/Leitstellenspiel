@@ -27,6 +27,12 @@ import {
 import {
   findeAaoRegel,
 } from './data/aaoRegeln.js'
+import {
+  findeRdVerknuepfung,
+} from './data/rdVerknuepfungen.js'
+import {
+  parseRdVerknuepfung,
+} from './data/rdVerknuepfungParser.js'
 // --------------------------------------------------
 // UHRZEIT
 // --------------------------------------------------
@@ -181,6 +187,18 @@ const fahrzeuge = ref([
     routeSchritt: 0,
     routeSchritte: 0,
   },
+  {
+  id: 5,
+  funkrufname: 'RK Regensburg 7/1',
+  typ: 'ELRD',
+  bereich: 'RD',
+  status: 2,
+  einsatzId: null,
+  naechsterStatusIn: 0,
+
+  // Position / Routing-Felder
+  // analog zu deinen anderen Fahrzeugen
+},
 ])
 
 // --------------------------------------------------
@@ -449,17 +467,52 @@ function autoSplitEinsatz() {
       'einsatz',
     )
   }
+// --------------------------------
+// Automatische RD-Verknüpfung
+// aus Feuerwehr-Stichwort
+// --------------------------------
 
+let rdVerknuepfung = null
+
+const fwStichwoerter = [
+  haupteinsatz.stichwoerter?.B,
+  haupteinsatz.stichwoerter?.T,
+  haupteinsatz.stichwoerter?.ABC,
+].filter(Boolean)
+
+for (
+  const fwStichwort
+  of fwStichwoerter
+) {
+  const gefunden =
+    findeRdVerknuepfung(
+      fwStichwort,
+    )
+
+  if (gefunden) {
+    rdVerknuepfung = gefunden
+    break
+  }
+}
+
+if (rdVerknuepfung) {
+  console.log(
+    'RD-Verknüpfung gefunden:',
+    rdVerknuepfung,
+  )
+}
   // --------------------------------
   // Rettungsdienst
   // --------------------------------
 
   if (
-    hatStichwort(
-      haupteinsatz,
-      'R',
-    )
-  ) {
+  hatStichwort(
+    haupteinsatz,
+    'R',
+  ) ||
+  rdVerknuepfung
+)
+   {
     const id =
       naechsteEinsatzId()
 
@@ -500,6 +553,11 @@ function autoSplitEinsatz() {
         SON: null,
         INF: null,
       },
+
+  rdVerknuepfung:
+    rdVerknuepfung
+      ? rdVerknuepfung.verknuepfungNeu
+      : null,
 
       status: 'offen',
       fahrzeuge: [],
@@ -545,12 +603,12 @@ function autoSplitEinsatz() {
 }
 
 function vorschlagErzeugen() {
-  console.log(
-    'VORSCHLAG-FUNKTION WURDE AUFGERUFEN',
-  )
-
   const einsatz =
     ausgewaehlterEinsatz.value
+    console.log(
+  'RD-Verknüpfung:',
+  einsatz?.rdVerknuepfung,
+)
 
   if (!einsatz) {
     return
@@ -571,152 +629,294 @@ function vorschlagErzeugen() {
     return
   }
 
-  const relevanteStichwoerter = []
+  let bedarf = []
 
-  if (einsatz.bereich === 'FW') {
-    const fwBereiche = [
-      'B',
-      'T',
-      'ABC',
-      'SON',
-    ]
+  // =================================
+  // RD-UNTEREINSATZ
+  // =================================
 
-    fwBereiche.forEach(
-      (bereich) => {
-        const stichwort =
-          einsatz.stichwoerter?.[
-            bereich
-          ]
+  if (
+    einsatz.bereich === 'RD' &&
+    einsatz.rdVerknuepfung
+  ) {
+    bedarf =
+      parseRdVerknuepfung(
+        einsatz.rdVerknuepfung,
+      )
 
-        if (stichwort) {
-          relevanteStichwoerter.push(
+    console.log(
+      'RD-Bedarf:',
+      bedarf,
+    )
+  }
+
+  // =================================
+  // NORMALE STICHWORT-AAO
+  // z.B. Feuerwehr
+  // =================================
+
+  else {
+    const relevanteStichwoerter = []
+
+    if (
+      einsatz.bereich === 'FW'
+    ) {
+      const fwBereiche = [
+        'B',
+        'T',
+        'ABC',
+        'SON',
+      ]
+
+      fwBereiche.forEach(
+        (bereich) => {
+          const stichwort =
+            einsatz
+              .stichwoerter?.[
+                bereich
+              ]
+
+          if (stichwort) {
+            relevanteStichwoerter.push(
+              stichwort,
+            )
+          }
+        },
+      )
+    }
+
+    if (
+      einsatz.bereich === 'RD' &&
+      einsatz.stichwoerter?.R
+    ) {
+      relevanteStichwoerter.push(
+        einsatz.stichwoerter.R,
+      )
+    }
+
+    relevanteStichwoerter.forEach(
+      (stichwort) => {
+        const regel =
+          findeAaoRegel(
             stichwort,
           )
-        }
+
+        regel.forEach(
+          (anforderung) => {
+            const vorhanden =
+              bedarf.find(
+                (eintrag) =>
+                  eintrag.typ ===
+                  anforderung.typ,
+              )
+
+            if (vorhanden) {
+              vorhanden.anzahl +=
+                anforderung.anzahl
+            } else {
+              bedarf.push({
+                ...anforderung,
+              })
+            }
+          },
+        )
       },
     )
   }
 
-  if (
-    einsatz.bereich === 'RD' &&
-    einsatz.stichwoerter?.R
-  ) {
-    relevanteStichwoerter.push(
-      einsatz.stichwoerter.R,
-    )
-  }
+  // =================================
+  // unbekannte Bestandteile
+  // =================================
 
-  if (
-    relevanteStichwoerter.length ===
-    0
-  ) {
-    alert(
-      'Für diesen Untereinsatz ist kein passendes Stichwort vorhanden.',
+  const unbekannte =
+    bedarf.filter(
+      (eintrag) =>
+        eintrag.unbekannt,
     )
 
-    return
-  }
-
-  const bedarf = []
-
-  relevanteStichwoerter.forEach(
-    (stichwort) => {
-      const regel =
-        findeAaoRegel(
-          stichwort,
-        )
-
-      regel.forEach(
-        (anforderung) => {
-          const vorhanden =
-            bedarf.find(
-              (eintrag) =>
-                eintrag.typ ===
-                anforderung.typ,
-            )
-
-          if (vorhanden) {
-            vorhanden.anzahl +=
-              anforderung.anzahl
-          } else {
-            bedarf.push({
-              ...anforderung,
-            })
-          }
-        },
+  unbekannte.forEach(
+    (eintrag) => {
+      console.warn(
+        'Noch nicht unterstützte RD-Komponente:',
+        eintrag.grund,
       )
     },
   )
 
-  if (bedarf.length === 0) {
-    alert(
-      'Für dieses Stichwort ist noch keine AAO-Regel hinterlegt.',
-    )
-
-    return
-  }
-
-  const vorgeschlageneIds = []
-
-  bedarf.forEach(
-    (anforderung) => {
-      const kandidaten =
-        fahrzeuge.value.filter(
-          (fahrzeug) => {
-            return (
-              fahrzeug.typ ===
-                anforderung.typ &&
-              fahrzeug.bereich ===
-                einsatz.bereich &&
-              (
-                fahrzeug.status === 1 ||
-                fahrzeug.status === 2
-              ) &&
-              fahrzeug.einsatzId ===
-                null
-            )
-          },
-        )
-
-      kandidaten
-        .slice(
-          0,
-          anforderung.anzahl,
-        )
-        .forEach(
-          (fahrzeug) => {
-            vorgeschlageneIds.push(
-              fahrzeug.id,
-            )
-          },
-        )
-    },
+  const echterBedarf =
+  bedarf.filter(
+    (eintrag) =>
+      eintrag.typ &&
+      eintrag.anzahl > 0 &&
+      !eintrag.platzhalter &&
+      !eintrag.variabel,
   )
 
+einsatz.platzhalterbedarf =
+  bedarf.filter(
+    (eintrag) =>
+      eintrag.platzhalter ||
+      eintrag.variabel,
+  )
   if (
-    vorgeschlageneIds.length ===
-    0
+    echterBedarf.length === 0
   ) {
     alert(
-      'Keine passenden verfügbaren Einsatzmittel gefunden.',
+      'Für diesen Einsatz konnte noch kein Fahrzeugbedarf ermittelt werden.',
     )
 
     return
   }
 
+  // =================================
+  // vorhandene Alarmierungen behalten
+  // =================================
+
+  const bereitsAlarmierteIds =
+    einsatz.fahrzeuge.filter(
+      (fahrzeugId) => {
+        const fahrzeug =
+          fahrzeuge.value.find(
+            (f) =>
+              f.id ===
+              fahrzeugId,
+          )
+
+        return (
+          fahrzeug?.einsatzId ===
+          einsatz.id
+        )
+      },
+    )
+
+  const vorgeschlageneIds = []
+  const fehlbedarf = []
+
+  // =================================
+  // Fahrzeuge suchen
+  // =================================
+
+echterBedarf.forEach(
+  (anforderung) => {
+    const erlaubteTypen = [
+      anforderung.typ,
+      ...(
+        anforderung
+          .alternativeTypen ??
+        []
+      ),
+    ]
+
+    const zielBereich =
+      anforderung.bereich ??
+      einsatz.bereich
+
+    const kandidaten =
+      fahrzeuge.value.filter(
+        (fahrzeug) => {
+          return (
+            erlaubteTypen.includes(
+              fahrzeug.typ,
+            ) &&
+
+            (
+              !zielBereich ||
+              fahrzeug.bereich ===
+                zielBereich
+            ) &&
+
+            (
+              fahrzeug.status === 1 ||
+              fahrzeug.status === 2
+            ) &&
+
+            fahrzeug.einsatzId ===
+              null &&
+
+            !vorgeschlageneIds.includes(
+              fahrzeug.id,
+            )
+          )
+        },
+      )
+
+    const ausgewaehlt =
+      kandidaten.slice(
+        0,
+        anforderung.anzahl,
+      )
+
+    ausgewaehlt.forEach(
+      (fahrzeug) => {
+        vorgeschlageneIds.push(
+          fahrzeug.id,
+        )
+      },
+    )
+
+    const fehlen =
+      anforderung.anzahl -
+      ausgewaehlt.length
+
+    if (fehlen > 0) {
+      fehlbedarf.push({
+        typ:
+          anforderung.bezeichnung ??
+          anforderung.typ,
+
+        anzahl:
+          fehlen,
+
+        grund:
+          anforderung.grund ??
+          '',
+      })
+    }
+  },
+)
+
+  // =================================
+  // Einsatz aktualisieren
+  // =================================
+
   einsatz.fahrzeuge = [
-    ...new Set(
-      vorgeschlageneIds,
-    ),
+    ...new Set([
+      ...bereitsAlarmierteIds,
+      ...vorgeschlageneIds,
+    ]),
   ]
+
+  einsatz.fehlbedarf =
+    fehlbedarf
 
   einsatz.vorschlagErstellt =
     true
+
+  // =================================
+  // Protokoll
+  // =================================
 
   protokolliere(
     `Einsatzmittelvorschlag für Einsatz #${einsatz.id} erstellt`,
     'einsatz',
   )
+
+  if (
+    fehlbedarf.length > 0
+  ) {
+    const text =
+      fehlbedarf
+        .map(
+          (eintrag) =>
+            `${eintrag.anzahl} × ${eintrag.typ}`,
+        )
+        .join(', ')
+
+    protokolliere(
+      `Fehlbedarf Einsatz #${einsatz.id}: ${text}`,
+      'einsatz',
+    )
+  }
 }
 // --------------------------------------------------
 // NOTRUF
@@ -2033,7 +2233,86 @@ async function alarmieren() {
     ),
   )
 }
+function katalogMeldebildAuswaehlen(
+  eintrag,
+) {
+  const einsatz =
+    ausgewaehlterEinsatz.value
 
+  if (!einsatz) {
+    return
+  }
+
+  if (einsatz.typ !== 'haupt') {
+    return
+  }
+
+  if (einsatz.autoSplitErfolgt) {
+    alert(
+      'Das Meldebild kann nach dem Auto-Split nicht mehr geändert werden.',
+    )
+
+    return
+  }
+
+  const stichwoerter =
+    leereStichwoerter()
+
+  let zielBereich = null
+
+  switch (eintrag.bereich) {
+    case 'B':
+      zielBereich = 'B'
+      break
+
+    case 'THL':
+      zielBereich = 'T'
+      break
+
+    case 'ABC':
+      zielBereich = 'ABC'
+      break
+
+    case 'RD':
+      zielBereich = 'R'
+      break
+
+    case 'SON':
+      zielBereich = 'SON'
+      break
+
+    case 'INF':
+      zielBereich = 'INF'
+      break
+  }
+
+  if (!zielBereich) {
+    alert(
+      'Dieses Meldebild kann noch keinem Bereich zugeordnet werden.',
+    )
+
+    return
+  }
+
+  stichwoerter[
+    zielBereich
+  ] = eintrag
+
+  einsatz.meldebildId =
+    eintrag.id
+
+  einsatz.meldung =
+    eintrag.schlagwort ||
+    eintrag.stichwort
+
+  einsatz.stichwoerter =
+    stichwoerter
+
+  protokolliere(
+    `Meldebild für Einsatz #${einsatz.id} geändert: ${eintrag.kennung}`,
+    'einsatz',
+  )
+}
 // --------------------------------------------------
 // STATUS
 // --------------------------------------------------
@@ -2054,6 +2333,7 @@ async function alarmieren() {
     :ist-fahrzeug-deaktiviert="istFahrzeugDeaktiviert"
     @einsatz-auswaehlen="einsatzAuswaehlen"
     @fahrzeug-auswaehlen="fahrzeugAuswaehlen"
+    @meldebild-auswaehlen="katalogMeldebildAuswaehlen"
     @alarmieren="alarmieren"
     @auto-split="autoSplitEinsatz"
     @schliessen="neuesLayoutAktiv = false"

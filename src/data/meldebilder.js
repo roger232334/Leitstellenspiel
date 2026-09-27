@@ -4,6 +4,25 @@ import {
 
 
 export const meldebilder = [
+    {
+  id: 'person-in-hoehe',
+
+  name: 'Person in Höhe',
+
+  stichwortIds: {
+    B: null,
+
+    T: 'THL-20-13',
+
+    ABC: null,
+    R: null,
+    SON: null,
+    INF: null,
+  },
+
+  aktiv: true,
+  systemEintrag: true,
+},
   {
     id: 'zimmerbrand',
     name: 'Zimmerbrand',
