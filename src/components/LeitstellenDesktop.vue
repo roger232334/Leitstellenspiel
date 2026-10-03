@@ -2,12 +2,32 @@
 import {
   computed,
   ref,
+  watch,
 } from 'vue'
+import Einsatzmaske from './Einsatzmaske.vue'
+import EinsatzDokumentation from './EinsatzDokumentation.vue'
+import EinsatzRessourcen from './EinsatzRessourcen.vue'
+import EinsatzVerlauf from './EinsatzVerlauf.vue'
+import LeitstellenHinweisleiste from './LeitstellenHinweisleiste.vue'
+import { mitRdVerknuepfung } from '../data/einsatzStichwoerter.js'
+import { haupteinsatzZu, untereinsaetzeZu } from '../data/einsatzHierarchie.js'
 
-import {
-  stichwortKatalog,
-} from '../data/stichwortKatalog.js'
+const aktuellerHaupteinsatz = computed(() => haupteinsatzZu(props.einsaetze, props.ausgewaehlterEinsatz))
+const zugehoerigeUntereinsaetze = computed(() => untereinsaetzeZu(props.einsaetze, aktuellerHaupteinsatz.value))
+function untereinsatzStichworte(einsatz) {
+  return Object.values(einsatz.stichwoerter || {}).filter(Boolean)
+    .map(e => typeof e === 'string' ? e : e.stichwort).filter(Boolean).join(' / ') || '—'
+}
+
 const props = defineProps({
+  leitstellenHinweise: { type: Array, default: () => [] },
+  simulationsZeit: { type: Number, default: 0 },
+  einsatzOeffnung: { type: Number, default: 0 },
+  notrufAktiv: Boolean,
+  manuelleErfassungAktiv: Boolean,
+  manuelleErfassungDaten: { type: Object, default: () => ({}) },
+  notrufDaten: { type: Object, default: () => ({}) },
+  geocodierungLaeuft: Boolean,
   einsaetze: {
     type: Array,
     required: true,
@@ -28,11 +48,6 @@ const props = defineProps({
     required: true,
   },
 
-  ereignisse: {
-    type: Array,
-    required: true,
-  },
-
   uhrzeit: {
     type: String,
     default: '',
@@ -45,143 +60,66 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
+  'sprechwunsch-annehmen',
+  'hinweis-entfernen',
+  'generatortest-erstellen',
+  'bedarfstest-erstellen',
+  'einsatz-notiz-aendern',
+  'einsatz-dokumentation-aendern',
+  'einsatz-dokumentation-uebernehmen',
+  'update:manuelleErfassungDaten',
+  'manuellen-einsatz-starten',
+  'manuellen-einsatz-abbrechen',
+  'manuellen-einsatz-erstellen',
+  'update:notrufDaten',
+  'notruf-beenden',
+  'einsatz-erstellen',
   'einsatz-auswaehlen',
   'fahrzeug-auswaehlen',
   'alarmieren',
   'auto-split',
-  'schliessen',
   'vorschlag',
   'meldebild-auswaehlen',
 ])
 
-const meldebildSucheOffen =
-  ref(false)
-
-const meldebildSuchtext =
-  ref('')
-
-
-const gefilterteMeldebilder =
-  computed(() => {
-    const suchtext =
-      meldebildSuchtext.value
-        .trim()
-        .toLowerCase()
-
-    const aktiveEintraege =
-      stichwortKatalog.filter(
-        (eintrag) =>
-          eintrag.aktiv !== false,
-      )
-
-    if (!suchtext) {
-      return aktiveEintraege.slice(
-        0,
-        100,
-      )
-    }
-
-    return aktiveEintraege
-      .filter((eintrag) => {
-        const suchbereich = [
-          eintrag.kennung,
-          eintrag.stichwort,
-          eintrag.kategorie,
-          eintrag.schlagwort,
-          eintrag.hauptgruppe,
-          eintrag.untergruppe,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-
-        return suchbereich.includes(
-          suchtext,
-        )
-      })
-      .slice(0, 100)
-  })
-
-
-function meldebildAuswahlOeffnen() {
-  if (
-    !props.ausgewaehlterEinsatz ||
-    props.ausgewaehlterEinsatz.typ !==
-      'haupt' ||
-    props.ausgewaehlterEinsatz
-      .autoSplitErfolgt
-  ) {
-    return
+const entwurfAuswahl = ref(props.manuelleErfassungAktiv ? 'manuell' : props.notrufAktiv ? 'notruf' : null)
+const fahrzeugAuswahlOffen = ref(false)
+const fahrzeugSuche = ref('')
+const auswahlFahrzeuge = computed(() => props.fahrzeuge.filter(f =>
+  [f.funkrufname, f.funkrufnameKurz, f.typ].join(' ').toLocaleLowerCase('de').includes(fahrzeugSuche.value.toLocaleLowerCase('de'))))
+watch(() => props.ausgewaehlterEinsatzId, () => { fahrzeugAuswahlOffen.value = false })
+watch(() => props.einsatzOeffnung, () => { entwurfAuswahl.value = null })
+watch(() => props.notrufAktiv, aktiv => {
+  if (aktiv) entwurfAuswahl.value = 'notruf'
+  else if (entwurfAuswahl.value === 'notruf') entwurfAuswahl.value = null
+})
+watch(() => props.manuelleErfassungAktiv, aktiv => {
+  if (aktiv) entwurfAuswahl.value = 'manuell'
+  else if (entwurfAuswahl.value === 'manuell') entwurfAuswahl.value = null
+})
+const erfasstManuell = computed(() => props.manuelleErfassungAktiv && entwurfAuswahl.value === 'manuell')
+const erfasstEntwurf = computed(() => erfasstManuell.value || (props.notrufAktiv && entwurfAuswahl.value === 'notruf'))
+function manuellenEinsatzOeffnen() {
+  entwurfAuswahl.value = 'manuell'
+  emit('manuellen-einsatz-starten')
+}
+const gespeicherteMaske = computed(() => {
+  const einsatz = props.ausgewaehlterEinsatz
+  if (!einsatz) return {}
+  return {
+    ...einsatz.erfassung,
+    ort: einsatz.erfassung?.ort ?? einsatz.ort,
+    meldung: einsatz.meldung,
+    schlagwort: einsatz.schlagwort || Object.values(einsatz.stichwoerter || {}).find(e => e?.kennung)?.kennung || '',
+    stichwoerter: einsatz.typ === 'haupt' ? mitRdVerknuepfung(einsatz.stichwoerter).stichwoerter : einsatz.stichwoerter,
+    stichwort: Object.values(einsatz.stichwoerter || {}).filter(Boolean)
+      .map(e => typeof e === 'string' ? e : e.stichwort).join(' / '),
+    notiz: (aktuellerHaupteinsatz.value || einsatz).bemerkung,
   }
-
-  meldebildSuchtext.value = ''
-  meldebildSucheOffen.value = true
-}
-
-
-function meldebildAuswahlSchliessen() {
-  meldebildSucheOffen.value = false
-  meldebildSuchtext.value = ''
-}
-
-
-function meldebildAuswaehlen(
-  eintrag,
-) {
-  emit(
-    'meldebild-auswaehlen',
-    eintrag,
-  )
-
-  meldebildAuswahlSchliessen()
-}
-
-
-function meldebildAnzeige(einsatz) {
-  if (!einsatz) {
-    return ''
-  }
-
-  const eintrag =
-    Object.values(
-      einsatz.stichwoerter ?? {},
-    ).find(Boolean)
-
-  return (
-    eintrag?.kennung ||
-    einsatz.meldung ||
-    ''
-  )
-}
+})
 // --------------------------------------------------
 // FAHRZEUGSTATUS
 // --------------------------------------------------
-
-function statusText(status) {
-  switch (status) {
-    case 1:
-      return 'Funk'
-
-    case 2:
-      return 'Wache'
-
-    case 3:
-      return 'Anfahrt'
-
-    case 4:
-      return 'Einsatzort'
-
-    case 7:
-      return 'Transport'
-
-    case 8:
-      return 'Ziel'
-
-    default:
-      return '-'
-  }
-}
-
 
 // --------------------------------------------------
 // EINSATZSTATUS
@@ -265,81 +203,7 @@ function statusBeschreibung(
 // STICHWÖRTER B / T / R
 // --------------------------------------------------
 
-function stichwortWert(
-  einsatz,
-  kategorie,
-) {
-  if (!einsatz) {
-    return ''
-  }
 
-  const neuesStichwort =
-    einsatz.stichwoerter?.[
-      kategorie
-    ]
-
-  if (neuesStichwort) {
-    // Neues Datenmodell:
-    // komplettes Stichwortobjekt
-    if (
-      typeof neuesStichwort ===
-      'object'
-    ) {
-      return (
-        neuesStichwort.stichwort ||
-        ''
-      )
-    }
-
-    // Fallback, falls später doch
-    // einmal nur Text gespeichert ist
-    return neuesStichwort
-  }
-
-  // --------------------------------
-  // Alte Einsätze weiterhin anzeigen
-  // --------------------------------
-
-  const altesStichwort =
-    (
-      einsatz.stichwort || ''
-    ).trim()
-
-  const gross =
-    altesStichwort.toUpperCase()
-
-  if (
-    kategorie === 'B' &&
-    (
-      gross.startsWith('B') ||
-      gross.includes('BRAND')
-    )
-  ) {
-    return altesStichwort
-  }
-
-  if (
-    kategorie === 'T' &&
-    (
-      gross.startsWith('THL') ||
-      gross.startsWith('T ')
-    )
-  ) {
-    return altesStichwort
-  }
-
-  if (
-    kategorie === 'R' &&
-    (
-      gross.startsWith('RD') ||
-      gross.startsWith('R ')
-    )
-  ) {
-    return altesStichwort
-  }
-
-  return ''
-}
 function istFahrzeugAusgewaehlt(
   fahrzeug,
 ) {
@@ -410,6 +274,7 @@ function hatNeueFahrzeuge() {
   )
 }
 function dispoFahrzeuge() {
+  if (erfasstEntwurf.value) return []
   const einsatz =
     props.ausgewaehlterEinsatz
 
@@ -428,33 +293,6 @@ function dispoFahrzeuge() {
 
 <template>
   <div class="els-desktop">
-    <!-- OBERSTE MENÜLEISTE -->
-
-    <header class="els-menue">
-      <div class="menue-links">
-        <button>Einsatz</button>
-        <button>TETRA</button>
-        <button>Aktuelles</button>
-        <button>Extras</button>
-        <button>Telefonbuch</button>
-        <button>Reports</button>
-        <button>ELDIS</button>
-        <button>Mail</button>
-        <button>Hilfe</button>
-      </div>
-
-      <div class="menue-rechts">
-        <span>&lt;GIS&gt;</span>
-
-        <button
-          class="zurueck-button"
-          @click="emit('schliessen')"
-        >
-          Altes Layout
-        </button>
-      </div>
-    </header>
-
     <!-- INFOLEISTE -->
 
     <div class="infoleiste">
@@ -484,258 +322,62 @@ function dispoFahrzeuge() {
           Einsatzbearbeitung
         </div>
 
-        <div class="einsatz-auswahl">
-          <label>Einsatz</label>
-
-          <select
-            :value="ausgewaehlterEinsatzId"
-            @change="
-              emit(
-                'einsatz-auswaehlen',
-                Number($event.target.value),
-              )
-            "
-          >
-        <option
-  v-for="einsatz in einsaetze"
-  :key="einsatz.id"
-  :value="einsatz.id"
->
-  {{
-    einsatz.typ === 'unter'
-      ? '↳ '
-      : ''
-  }}
-  #{{ einsatz.id }} –
-  {{ einsatz.meldung }}
-  {{
-    einsatz.typ === 'haupt'
-      ? '[HAUPT]'
-      : einsatz.bereich
-        ? `[${einsatz.bereich}]`
-        : ''
-  }}
-</option>
-          </select>
-        </div>
-
-        <template v-if="ausgewaehlterEinsatz">
-
-          <div class="abschnitt-titel">
-            Einsatzort
-          </div>
-
-        <div class="formular">
-  <label>Nummer</label>
-
-  <input
-    :value="
-      ausgewaehlterEinsatz.id
-    "
-    readonly
-  />
-
-<label>Meldebild</label>
-
-<div class="meldebild-auswahl">
-  <input
-    class="einsatzfeld meldebild-feld"
-    :value="
-      meldebildAnzeige(
-        ausgewaehlterEinsatz,
-      )
-    "
-    readonly
-    :title="
-      ausgewaehlterEinsatz.typ ===
-        'haupt' &&
-      !ausgewaehlterEinsatz
-        .autoSplitErfolgt
-        ? 'Meldebild auswählen'
-        : ''
-    "
-    @click="
-      meldebildAuswahlOeffnen
-    "
-  />
-
-  <div
-    v-if="meldebildSucheOffen"
-    class="meldebild-dropdown"
-  >
-    <div
-      class="meldebild-dropdown-kopf"
-    >
-      <input
-        v-model="
-          meldebildSuchtext
-        "
-        type="text"
-        placeholder="Meldebild suchen..."
-        autofocus
-        @keydown.esc="
-          meldebildAuswahlSchliessen
-        "
-      />
-
-      <button
-        type="button"
-        @click="
-          meldebildAuswahlSchliessen
-        "
-      >
-        ×
-      </button>
-    </div>
-
-    <div
-      class="meldebild-ergebnisse"
-    >
-      <button
-        v-for="
-          eintrag in
-          gefilterteMeldebilder
-        "
-        :key="eintrag.id"
-        type="button"
-        class="meldebild-ergebnis"
-        @click="
-          meldebildAuswaehlen(
-            eintrag,
-          )
-        "
-      >
-        <strong>
-          {{ eintrag.kennung }}
-        </strong>
-
-        <span>
-          {{ eintrag.stichwort }}
-        </span>
-      </button>
-
-      <div
-        v-if="
-          gefilterteMeldebilder
-            .length === 0
-        "
-        class="meldebild-kein-treffer"
-      >
-        Kein passendes Meldebild
-        gefunden.
-      </div>
-    </div>
-  </div>
-</div>
-
-  <label>Straße / Ort</label>
-
-  <input
-    class="einsatzfeld"
-    :value="
-      ausgewaehlterEinsatz.ort
-    "
-    readonly
-  />
-</div>
-
-
-<!-- STICHWÖRTER -->
-
-<div class="stichwort-bereich">
-
-  <div class="stichwort-zeile">
-    <label>STW B</label>
-
-    <input
-      :value="
-        stichwortWert(
-          ausgewaehlterEinsatz,
-          'B',
-        )
-      "
-      readonly
-    />
-  </div>
-
-  <div class="stichwort-zeile">
-    <label>STW T</label>
-
-    <input
-      :value="
-        stichwortWert(
-          ausgewaehlterEinsatz,
-          'T',
-        )
-      "
-      readonly
-    />
-  </div>
-
-  <div class="stichwort-zeile">
-    <label>STW R</label>
-
-    <input
-      :value="
-        stichwortWert(
-          ausgewaehlterEinsatz,
-          'R',
-        )
-      "
-      readonly
-    />
-  </div>
-
-</div>
-
-
-<!-- EINSATZSTATUS -->
-
-<div class="status-zeile">
-  <label>Status</label>
-
-  <div
-    class="einsatz-statusfeld"
-    :class="
-      'einsatz-status-' +
-      ausgewaehlterEinsatz.status
-    "
-  >
-    {{
-      einsatzStatusText(
-        ausgewaehlterEinsatz.status,
-      )
-    }}
-  </div>
-</div>
-
-          <div class="abschnitt-titel">
-            Hinweise
-          </div>
-
-          <textarea
-            class="hinweisfeld"
+        <button v-if="notrufAktiv && entwurfAuswahl !== 'notruf'" class="neuer-einsatz-button" type="button" @click="entwurfAuswahl = 'notruf'">Erfassung zum laufenden Notruf öffnen</button>
+        <button class="neuer-einsatz-button" type="button" :disabled="geocodierungLaeuft" @click="manuellenEinsatzOeffnen">
+          {{ manuelleErfassungAktiv ? 'Manuellen Entwurf öffnen' : 'Neuer Einsatz ohne Anruf' }}
+        </button>
+        <details class="bedarfstest-auswahl">
+          <summary>Bedarf testen</summary>
+          <button type="button" @click="emit('bedarfstest-erstellen', 'brand')">Testeinsatz Brand anlegen</button>
+          <button type="button" @click="emit('bedarfstest-erstellen', 'thl')">Testeinsatz THL anlegen</button>
+          <button type="button" @click="emit('generatortest-erstellen')">Zimmerbrand generieren (Test)</button>
+        </details>
+        <div class="einsatzmaske-scroll">
+          <template v-if="erfasstEntwurf">
+            <Einsatzmaske
+              :key="entwurfAuswahl"
+              :model-value="erfasstManuell ? manuelleErfassungDaten : notrufDaten"
+              :busy="geocodierungLaeuft"
+              @update:model-value="emit(erfasstManuell ? 'update:manuelleErfassungDaten' : 'update:notrufDaten', $event)"
+              @speichern="emit(erfasstManuell ? 'manuellen-einsatz-erstellen' : 'einsatz-erstellen')"
+            />
+            <button v-if="erfasstManuell" class="notruf-beenden-button" type="button" :disabled="geocodierungLaeuft" @click="emit('manuellen-einsatz-abbrechen')">Entwurf verwerfen</button>
+            <button v-else class="notruf-beenden-button" type="button" :disabled="geocodierungLaeuft" @click="emit('notruf-beenden')">Gespräch ohne Einsatz beenden</button>
+          </template>
+          <Einsatzmaske
+            v-else-if="ausgewaehlterEinsatz"
+            :model-value="gespeicherteMaske"
+            :nummer="ausgewaehlterEinsatz.id"
+            notiz-aenderbar
+            @notiz-aendern="emit('einsatz-notiz-aendern', { id: ausgewaehlterEinsatz.id, text: $event })"
+            :status="einsatzStatusText(ausgewaehlterEinsatz.status)"
             readonly
-            :value="
-              ausgewaehlterEinsatz.bemerkung
-            "
-          ></textarea>
-
-          <div class="untere-buttons">
-            <button>Neu</button>
-            <button>Öffnen</button>
-            <button>Beenden</button>
-            <button>Schließen</button>
-            <button>Storno</button>
-            <button>Protokoll</button>
-          </div>
-        </template>
-
-        <div
-          v-else
-          class="kein-einsatz"
-        >
-          Kein Einsatz ausgewählt.
+            :meldebild-aenderbar="ausgewaehlterEinsatz.typ === 'haupt' && !ausgewaehlterEinsatz.autoSplitErfolgt"
+            @meldebild-auswaehlen="emit('meldebild-auswaehlen', $event)"
+          >
+            <template #untereinsaetze>
+              <EinsatzVerlauf :einsatz="ausgewaehlterEinsatz" :einsaetze="einsaetze" :jetzt="simulationsZeit" />
+              <EinsatzRessourcen :einsatz="ausgewaehlterEinsatz" :einsaetze="einsaetze" :fahrzeuge="fahrzeuge" />
+              <section v-if="aktuellerHaupteinsatz" class="untereinsatz-bereich" aria-label="Untereinsätze">
+                <div class="untereinsatz-kopf">
+                  <strong>Untereinsätze · Einsatz #{{ aktuellerHaupteinsatz.id }}</strong>
+                  <button v-if="ausgewaehlterEinsatz.id !== aktuellerHaupteinsatz.id" type="button" @click="emit('einsatz-auswaehlen', aktuellerHaupteinsatz.id)">Zum Haupteinsatz</button>
+                </div>
+                <p v-if="!zugehoerigeUntereinsaetze.length">Noch keine Untereinsätze erstellt.</p>
+                <div v-else class="untereinsatz-liste">
+                  <button v-for="einsatz in zugehoerigeUntereinsaetze" :key="einsatz.id" type="button"
+                    class="untereinsatz-zeile" :class="{ aktiv: einsatz.id === ausgewaehlterEinsatzId }"
+                    :aria-pressed="einsatz.id === ausgewaehlterEinsatzId"
+                    @click="emit('einsatz-auswaehlen', einsatz.id)">
+                    <strong>#{{ einsatz.id }} · {{ einsatz.bereich }}</strong>
+                    <span>{{ untereinsatzStichworte(einsatz) }}</span>
+                    <span>{{ einsatzStatusText(einsatz.status) }}</span>
+                  </button>
+                </div>
+              </section>
+            </template>
+          </Einsatzmaske>
+          <div v-else class="kein-einsatz">Kein Einsatz ausgewählt. Über „Neuer Einsatz ohne Anruf“ kannst du jederzeit einen Einsatz anlegen.</div>
         </div>
       </section>
 
@@ -746,6 +388,19 @@ function dispoFahrzeuge() {
       <section class="fenster dispo">
         <div class="fenster-titel">
           Dispoliste
+        </div>
+
+        <div v-if="fahrzeugAuswahlOffen && !erfasstEntwurf && ausgewaehlterEinsatz" class="fahrzeug-auswahl">
+          <label>Fahrzeuge hinzufügen <input v-model="fahrzeugSuche" type="search" placeholder="Funkrufname oder Typ" /></label>
+          <div class="fahrzeug-auswahl-liste">
+            <button v-for="fahrzeug in auswahlFahrzeuge" :key="fahrzeug.id" type="button"
+              :disabled="istFahrzeugDeaktiviert(fahrzeug)" :aria-pressed="istFahrzeugAusgewaehlt(fahrzeug)"
+              @click="fahrzeugKlicken(fahrzeug)">
+              {{ istFahrzeugAusgewaehlt(fahrzeug) ? '✓ ' : '+ ' }}{{ fahrzeug.funkrufname }} · {{ fahrzeug.typ }} · Status {{ fahrzeug.status }}
+            </button>
+            <p v-if="!auswahlFahrzeuge.length">Keine Fahrzeuge gefunden.</p>
+          </div>
+          <button type="button" @click="fahrzeugAuswahlOffen = false">Auswahl schließen</button>
         </div>
 
         <div class="tabellen-container">
@@ -873,7 +528,7 @@ function dispoFahrzeuge() {
           </table>
           <div
   v-if="
-    ausgewaehlterEinsatz?.fehlbedarf?.length
+    !erfasstEntwurf && ausgewaehlterEinsatz?.fehlbedarf?.length
   "
   class="fehlbedarf-box"
 >
@@ -906,6 +561,7 @@ function dispoFahrzeuge() {
         <div class="funktionsleiste">
           <button
   :disabled="
+    erfasstEntwurf ||
     !ausgewaehlterEinsatz ||
     ausgewaehlterEinsatz.typ !==
       'unter' ||
@@ -919,6 +575,7 @@ function dispoFahrzeuge() {
           <button
   class="primaer"
   :disabled="
+    erfasstEntwurf ||
     !ausgewaehlterEinsatz ||
     ausgewaehlterEinsatz.status ===
       'alarmiert' ||
@@ -931,6 +588,7 @@ function dispoFahrzeuge() {
 
 <button
   :disabled="
+    erfasstEntwurf ||
     !ausgewaehlterEinsatz ||
     ausgewaehlterEinsatz.status !==
       'alarmiert' ||
@@ -943,6 +601,7 @@ function dispoFahrzeuge() {
 </button>
 <button
   :disabled="
+    erfasstEntwurf ||
     !ausgewaehlterEinsatz ||
     ausgewaehlterEinsatz.typ !== 'haupt' ||
     ausgewaehlterEinsatz.autoSplitErfolgt
@@ -956,7 +615,8 @@ function dispoFahrzeuge() {
             Hinweis
           </button>
 
-          <button>
+          <button type="button" :disabled="erfasstEntwurf || !ausgewaehlterEinsatz || ausgewaehlterEinsatz.status === 'abgeschlossen'"
+            :aria-expanded="fahrzeugAuswahlOffen" @click="fahrzeugAuswahlOffen = !fahrzeugAuswahlOffen">
             Hinzuf.
           </button>
 
@@ -983,37 +643,9 @@ function dispoFahrzeuge() {
       <!-- ================================= -->
 
       <section class="fenster rueckmeldungen">
-        <div class="fenster-titel">
-          Rückmeldungen erfassen
-        </div>
-
-        <div class="rueckmeldung-kopf">
-          <span>Zeit</span>
-          <span>Text</span>
-        </div>
-
-        <div class="rueckmeldung-liste">
-          <div
-            v-for="ereignis in ereignisse.slice(0, 25)"
-            :key="ereignis.id"
-            class="rueckmeldung"
-          >
-            <span class="zeit">
-              {{ ereignis.zeit }}
-            </span>
-
-            <span>
-              {{ ereignis.text }}
-            </span>
-          </div>
-        </div>
-
-        <div class="funktionsleiste">
-          <button>Neu</button>
-          <button>Übernehmen</button>
-          <button>SDS</button>
-          <button>Vergrößern</button>
-        </div>
+        <EinsatzDokumentation :einsatz="erfasstEntwurf ? null : ausgewaehlterEinsatz"
+          @entwurf="emit('einsatz-dokumentation-aendern', $event)"
+          @uebernehmen="emit('einsatz-dokumentation-uebernehmen', $event)" />
       </section>
 
       <!-- ================================= -->
@@ -1059,6 +691,8 @@ function dispoFahrzeuge() {
 
     <!-- STATUSLEISTE -->
 
+    <LeitstellenHinweisleiste :hinweise="leitstellenHinweise.filter(h => !h.test)" @entfernen="emit('hinweis-entfernen', $event)"
+      @annehmen="(id, bestaetigen) => emit('sprechwunsch-annehmen', id, bestaetigen)" />
     <footer class="statusleiste">
       <span>
         Leitstellensimulator
@@ -1066,7 +700,9 @@ function dispoFahrzeuge() {
 
       <span>
         {{
-          ausgewaehlterEinsatz
+          erfasstEntwurf
+            ? (erfasstManuell ? 'Manueller Einsatz in Erfassung' : 'Notruf in Erfassung')
+            : ausgewaehlterEinsatz
             ? `Einsatz #${ausgewaehlterEinsatz.id}`
             : 'Kein Einsatz'
         }}
@@ -1084,17 +720,33 @@ function dispoFahrzeuge() {
 </template>
 
 <style scoped>
+.bedarfstest-auswahl { padding: 6px 10px; font-size: 12px; background: #edf0f2; }
+.fahrzeug-auswahl { padding: 8px; border-bottom: 1px solid #a9b5be; background: #edf0f2; min-height: 0; overflow: auto; }
+.fahrzeug-auswahl label { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.fahrzeug-auswahl input { min-width: 0; max-width: 100%; padding: 5px; }
+.fahrzeug-auswahl-liste { max-height: 180px; overflow: auto; margin: 6px 0; }
+.fahrzeug-auswahl button { display: block; padding: 5px 8px; font: inherit; text-align: left; white-space: normal; border: 1px solid #a9b5be; background: #f4f6f7; cursor: pointer; }
+.fahrzeug-auswahl button[aria-pressed=true] { background: #d8e4ec; }
+.fahrzeug-auswahl button:disabled { opacity: 0.6; cursor: default; }
+.bedarfstest-auswahl summary { cursor: pointer; }
+.bedarfstest-auswahl button { margin: 6px 6px 0 0; padding: 5px 8px; font: inherit; border: 1px solid #a9b5be; background: #f4f6f7; cursor: pointer; }
 * {
   box-sizing: border-box;
 }
 
 .els-desktop {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
+  position: relative;
+
+  width: 100%;
+  height: 100%;
+
+  flex: 1;
+  min-height: 0;
 
   display: flex;
   flex-direction: column;
+
+  overflow: hidden;
 
   background: #d7dce0;
 
@@ -1106,53 +758,6 @@ function dispoFahrzeuge() {
     sans-serif;
 
   font-size: 11px;
-}
-
-/* MENÜ */
-
-.els-menue {
-  height: 28px;
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  padding: 0 5px;
-
-  background: #eef1f3;
-
-  border-bottom:
-    1px solid #89939c;
-}
-
-.menue-links {
-  display: flex;
-}
-
-.els-menue button {
-  border: 0;
-  background: transparent;
-
-  padding: 5px 7px;
-
-  font-size: 11px;
-
-  cursor: pointer;
-}
-
-.els-menue button:hover {
-  background: #c7d5e1;
-}
-
-.menue-rechts {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.zurueck-button {
-  border: 1px solid #74818a !important;
-  background: #e4e8eb !important;
 }
 
 /* INFO */
@@ -1220,6 +825,7 @@ function dispoFahrzeuge() {
 /* HAUPTBEREICH */
 
 .els-arbeitsbereich {
+  overflow: auto;
   flex: 1;
 
   min-height: 0;
@@ -1634,6 +1240,7 @@ button.primaer {
 /* STATUS UNTEN */
 
 .statusleiste {
+  flex-shrink: 0;
   min-height: 22px;
 
   display: flex;
@@ -1928,4 +1535,20 @@ button.primaer {
 
   color: #666;
 }
+</style>
+
+<style scoped>
+.einsatzmaske-scroll { flex: 1; min-height: 0; overflow: auto; }
+.notruf-beenden-button { padding: 5px 7px; border: 1px solid #89939c; background: #f0f3f4; color: #111; cursor: pointer; font: inherit; }
+.neuer-einsatz-button { margin: 0 6px 6px; padding: 6px; border: 1px solid #89939c; background: #d5e9d7; color: #111; font: inherit; cursor: pointer; }
+.notruf-beenden-button { margin: 4px 5px 10px; }
+.untereinsatz-bereich { margin-top: 10px; border: 1px solid #a2adb4; background: #f6f8f9; }
+.untereinsatz-kopf { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px; padding: 6px; background: #d8e2e8; }
+.untereinsatz-kopf button { padding: 3px 5px; cursor: pointer; }
+.untereinsatz-bereich p { padding: 6px; margin: 0; color: #52636e; }
+.untereinsatz-liste { max-height: 190px; overflow-y: auto; }
+.untereinsatz-zeile { display: grid; grid-template-columns: 85px minmax(0, 1fr) 75px; gap: 5px; align-items: center; width: 100%; padding: 7px 5px; border: 0; border-bottom: 1px solid #c3ccd2; background: white; color: #111; text-align: left; font: inherit; cursor: pointer; }
+.untereinsatz-zeile span { overflow-wrap: anywhere; }
+.untereinsatz-zeile:hover { background: #e7f1f8; }
+.untereinsatz-zeile.aktiv { background: #fff29a; box-shadow: inset 3px 0 #947900; }
 </style>

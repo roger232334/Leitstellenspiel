@@ -28,6 +28,11 @@ coverage
 
 .eslintcache
 
+# Local OSM source and generated snapshots (include generated data when deploying)
+/data/osm/
+/public/data/gebiet/
+__pycache__/
+
 # Cypress
 /cypress/videos/
 /cypress/screenshots/

@@ -1,0 +1,19 @@
+[
+  { "tag": "amenity", "werte": ["hospital"], "typId": "krankenhaus" },
+  { "tag": "healthcare", "werte": ["hospital"], "typId": "krankenhaus" },
+  { "tag": "amenity", "werte": ["school", "college", "university"], "typId": "schule" },
+  { "tag": "amenity", "werte": ["kindergarten"], "typId": "kindergarten" },
+  { "tag": "amenity", "werte": ["fire_station"], "typId": "feuerwehr-thw" },
+  { "tag": "amenity", "werte": ["police"], "typId": "polizei" },
+  { "tag": "amenity", "werte": ["pharmacy"], "typId": "apotheke" },
+  { "tag": "amenity", "werte": ["doctors", "dentist"], "typId": "praxis" },
+  { "tag": "healthcare", "werte": ["doctor", "doctors", "dentist", "clinic"], "typId": "praxis" },
+  { "tag": "railway", "werte": ["station", "halt"], "typId": "bahnhof" },
+  { "tag": "emergency", "werte": ["ambulance_station"], "typId": "rettungsdienst" },
+  { "tag": "highway", "werte": ["emergency_access_point"], "typId": "rettungspunkt" },
+  { "tag": "tourism", "werte": ["hotel", "hostel", "guest_house", "motel"], "typId": "beherbergungsbetrieb" },
+  { "tag": "tourism", "werte": ["camp_site"], "typId": "campingplatz" },
+  { "tag": "amenity", "werte": ["nursing_home"], "typId": "altenheim" },
+  { "tag": "amenity", "werte": ["place_of_worship"], "typId": "religioese-einrichtung" },
+  { "tag": "amenity", "werte": ["restaurant", "pub"], "typId": "gaststaette" }
+]

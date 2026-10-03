@@ -1474,3 +1474,192 @@ button {
 
   font-weight: bold;
 }
+/* --------------------------------------------------
+   NEUES LEITSTELLEN-LAYOUT
+-------------------------------------------------- */
+
+.leitstellen-hauptansicht {
+  position: fixed;
+  inset: 0;
+
+  width: 100vw;
+  height: 100vh;
+
+  display: flex;
+  flex-direction: column;
+
+  overflow: hidden;
+
+  background: #d7dce0;
+  color: #111;
+}
+
+
+/* MODUL-TABS */
+
+.leitstellen-module {
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+
+  display: flex;
+  align-items: stretch;
+
+  flex-shrink: 0;
+
+  padding: 2px 4px;
+
+  background: #cbd4da;
+
+  border-bottom: 1px solid #77838b;
+
+  z-index: 20;
+}
+
+
+.leitstellen-modul {
+  min-width: 110px;
+
+  padding: 4px 12px;
+
+  border: 1px solid #89959c;
+  border-right: 0;
+
+  background:
+    linear-gradient(
+      #f8fafb,
+      #c9d2d7
+    );
+
+  color: #111;
+
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+
+  cursor: pointer;
+}
+
+
+.leitstellen-modul:last-child {
+  border-right: 1px solid #89959c;
+}
+
+
+.leitstellen-modul:hover {
+  background: #eef4f8;
+}
+
+
+.leitstellen-modul.aktiv {
+  background: #fff29a;
+  font-weight: bold;
+}
+
+.leitstellen-module { overflow-x: auto; }
+.modul-tabgruppe { display: flex; flex-shrink: 0; }
+.modul-tabgruppe .leitstellen-modul { touch-action: none; user-select: none; border-right: 0; }
+.modul-auslagern-button { width: 25px; flex-shrink: 0; border: 1px solid #89959c; background: #e4ebef; color: #334653; cursor: pointer; }
+.modul-tab-hilfe { align-self: center; padding: 0 12px; color: #52636e; font: 11px Arial, sans-serif; white-space: nowrap; }
+.fenster-meldung { padding: 10px; background: #fff6cf; color: #594a16; font: 12px Arial, sans-serif; }
+.tab-zieh-hinweis { position: fixed; top: 45px; left: 50%; transform: translateX(-50%); z-index: 9999; padding: 14px 20px; pointer-events: none; background: #fff29a; color: #111; border: 1px solid #aa9637; box-shadow: 0 3px 12px #0003; }
+.modul-ausgelagert-hinweis { flex: 1; padding: 30px; color: #334653; background: #edf0f2; font: 13px Arial, sans-serif; }
+.modul-ausgelagert-hinweis button { margin-right: 8px; padding: 8px 12px; border: 1px solid #89959c; background: white; cursor: pointer; }
+.chronik-modul { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px; }
+.chronik-modul .ereignisprotokoll { flex: 1; min-height: 0; height: auto; margin: 0; display: flex; flex-direction: column; }
+.chronik-modul .ereignis-kopf { flex-shrink: 0; }
+.chronik-modul .ereignisliste { flex: 1; min-height: 0; height: auto; }
+
+
+/* MODUL-INHALT */
+
+.modul-platzhalter {
+  flex: 1;
+  min-height: 0;
+
+  padding: 20px;
+
+  overflow: auto;
+
+  background: #e4e8ea;
+  color: #111;
+
+  font-family: Arial, sans-serif;
+}
+
+
+.modul-platzhalter h2 {
+  margin-top: 0;
+  font-size: 16px;
+}
+/* --------------------------------------------------
+   KARTEN-MODUL
+-------------------------------------------------- */
+
+.karten-modul {
+  flex: 1;
+  min-height: 0;
+
+  display: flex;
+  flex-direction: column;
+
+  overflow: hidden;
+
+  background: #d7dce0;
+
+  color: #111;
+}
+
+
+.karten-modul-kopf {
+  height: 26px;
+  min-height: 26px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 0 7px;
+
+  background:
+    linear-gradient(
+      #d8e2e8,
+      #c2ccd3
+    );
+
+  border-bottom:
+    1px solid #89939c;
+
+  color: #334653;
+
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+
+.karten-modul-status {
+  padding: 2px 6px;
+
+  border: 1px solid #9ca6ac;
+
+  background: #eef1f3;
+
+  font-size: 10px;
+  font-weight: normal;
+}
+
+
+.karten-modul-inhalt {
+  flex: 1;
+  min-height: 0;
+
+  position: relative;
+
+  overflow: hidden;
+}
+
+
+.karten-modul-inhalt > * {
+  width: 100%;
+  height: 100%;
+}

@@ -1,4 +1,8 @@
 export const aaoRegeln = {
+  // Simulationsvorschlag für Gebietsabsicherung: ein RTW.
+  'RD-05-40': [
+    { typ: 'RTW', anzahl: 1 },
+  ],
   // Testregel Zimmerbrand / B 3
   'B-11-23': [
     {

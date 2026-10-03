@@ -5,21 +5,45 @@
 import {
   computed,
   nextTick,
-  onMounted,
   onUnmounted,
   ref,
 } from 'vue'
 
 import { notrufSzenarien } from './data/notrufSzenarien.js'
+import { gebietLaden, gebietsPruefung } from './data/gebiet.js'
+import { notrufImGebiet } from './data/notruf/gebietsNotruf.js'
+import { katalogFrage } from './data/notruf/frageKatalog.js'
+import { antwortAufFrage } from './data/notruf/antwortLogik.js'
+import { kommunikationsBeitrag, istSprachbeitrag } from './data/kommunikation.js'
+import { dokumentationUebernehmen } from './data/einsatzDokumentation.js'
+import { funkgruppenAusFahrzeugen, funkspruchErzeugen, fahrzeugFunkgruppeId } from './data/funk.js'
+import { hinweisEntfernen, sprechwunschHinzufuegen } from './data/leitstellenHinweise.js'
 import { routeBerechnen } from './services/routing.js'
 import { adresseGeocodieren } from './services/geocoding.js'
+import { einsatzAdresse, leereEinsatzErfassung as neueErfassung } from './data/einsatzErfassung.js'
+import StartMenue from './components/StartMenue.vue'
+import { einsatzFrequenzen, notrufWartezeit } from './data/schicht.js'
+import { gemeinsameHinweiseAendern } from './data/einsatzHierarchie.js'
+import { bedarfsTestEinsatz } from './data/bedarfsTestEinsaetze.js'
+import { generiereEinsatz } from './data/einsaetze/einsatzGenerator.js'
+import { phasenSprechwunschErzeugen, funkLageBekanntgeben, sprechwunschFreigeben } from './data/einsatzFunk.js'
+import { simulationsUhr, simulationsGeschwindigkeiten, SIMULATIONS_TAKT_MS } from './services/simulationsZeit.js'
+import { einsatzAlarmiert, fahrzeugAlarmieren, fahrzeugRouteUebernehmen, fahrzeugeFortschreiben, lebenszyklenFortschreiben } from './data/einsatzLebenszyklus.js'
+import { simulationsTyp } from './data/fahrzeugArten.js'
+import { stichwortKatalog } from './data/stichwortKatalog.js'
+import { katalogStichwoerter, mitRdVerknuepfung } from './data/einsatzStichwoerter.js'
 
 import LeitstellenKarte from './components/LeitstellenKarte.vue'
 import FahrzeugUebersicht from './components/FahrzeugUebersicht.vue'
+import FahrzeugTableau from './components/FahrzeugTableau.vue'
+import EinsatzUebersicht from './components/EinsatzUebersicht.vue'
+import ModulFenster from './components/ModulFenster.vue'
+import { tabHerausgezogen } from './services/modulFenster.js'
 import EinsatzListe from './components/EinsatzListe.vue'
 import EinsatzDetails from './components/EinsatzDetails.vue'
 import SystemChronik from './components/SystemChronik.vue'
 import LeitstellenDesktop from './components/LeitstellenDesktop.vue'
+import NotrufModul from './components/Notrufmodul.vue'
 import {
   findeMeldebildNachName,
   loeseMeldebildAuf,
@@ -28,9 +52,6 @@ import {
   findeAaoRegel,
 } from './data/aaoRegeln.js'
 import {
-  findeRdVerknuepfung,
-} from './data/rdVerknuepfungen.js'
-import {
   parseRdVerknuepfung,
 } from './data/rdVerknuepfungParser.js'
 // --------------------------------------------------
@@ -38,205 +59,76 @@ import {
 // --------------------------------------------------
 
 const uhrzeit = ref('')
-const neuesLayoutAktiv = ref(false)
+const simulationGestartet = ref(false)
+const simulationsZeit = ref(Date.now())
+const einsatzFrequenz = ref(100)
+const simulationsFaktor = ref(1)
+let zentraleUhr = null
+function leereEinsatzErfassung() {
+  return { ...neueErfassung(), eroeffnetAm: new Date(simulationsZeit.value).toISOString() }
+}
+const neuesLayoutAktiv = ref(true)
 
-function aktualisiereUhrzeit() {
-  uhrzeit.value = new Date().toLocaleTimeString('de-DE', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
-
-  // Laufendes Notrufgespräch
-  if (notrufDialog.value) {
-    notrufSekunden.value++
-  }
-
-  // Eingehender, noch nicht angenommener Notruf
+function simulationsStandAnwenden({ zeit, deltaSekunden }) {
+  simulationsZeit.value = zeit
+  uhrzeit.value = new Date(zeit).toLocaleTimeString('de-DE')
+  fahrzeugeFortschreiben(fahrzeuge.value, zeit)
+  lebenszyklenFortschreiben(einsaetze.value, fahrzeuge.value, zeit, lebenszyklusEreignis)
+  if (notrufDialog.value) notrufSekunden.value += deltaSekunden
   if (eingehenderNotruf.value) {
-    klingelSekunden.value++
-
-    if (klingelSekunden.value >= ANRUF_TIMEOUT) {
-      notrufVerpasst()
-    }
+    klingelSekunden.value += deltaSekunden
+    if (klingelSekunden.value >= ANRUF_TIMEOUT) notrufVerpasst()
+  }
+  if (naechsterNotrufAm != null && zeit >= naechsterNotrufAm) {
+    naechsterNotrufAm = null
+    starteEingehendenNotruf()
   }
 }
-
+function aktualisiereUhrzeit() {
+  if (zentraleUhr) simulationsStandAnwenden(zentraleUhr.tick(performance.now()))
+}
+function geschwindigkeitAendern(event) {
+  const faktor = Number(event.target.value)
+  simulationsStandAnwenden(zentraleUhr.geschwindigkeit(faktor, performance.now()))
+  simulationsFaktor.value = faktor
+}
+function lebenszyklusEreignis(event) {
+  phasenSprechwunschErzeugen(event, einsaetze.value, fahrzeuge.value, leitstellenHinweise.value)
+  const texte = { einsatzAlarmiert: 'Alarmiert', anfahrtGestartet: 'Anfahrt begonnen', erstesFahrzeugEingetroffen: 'Erstes geeignetes Fahrzeug eingetroffen', erkundungGestartet: 'Erkundung begonnen', erkundungAbgeschlossen: 'Erkundung abgeschlossen', massnahmenGestartet: 'Maßnahmen begonnen', einsatzAbschluss: 'Abschlussphase begonnen', einsatzBeendet: 'Einsatz beendet, Fahrzeuge freigegeben' }
+  protokolliere(`Einsatz #${event.einsatzId}: ${texte[event.typ] || event.typ}`, 'einsatz', event.zeit)
+}
 let timer
-let fahrzeugTimer
-
-onMounted(() => {
+function simulationStarten({ start, frequenz, fahrzeugDaten }) {
+  if (simulationGestartet.value || !Number.isFinite(start) || !einsatzFrequenzen.includes(frequenz)) return
+  fahrzeuge.value = fahrzeugDaten
+  leitstellenHinweise.value = []
+  zentraleUhr = simulationsUhr(start, performance.now())
+  einsatzFrequenz.value = frequenz
+  simulationGestartet.value = true
   aktualisiereUhrzeit()
-
-  // Uhr und Notruf-Timer
-  timer = setInterval(
-    aktualisiereUhrzeit,
-    1000,
-  )
-
-  // Eigener Fahrzeug-Timer
-  fahrzeugTimer = setInterval(
-    aktualisiereFahrzeugEinsaetze,
-    1000,
-  )
-
-  protokolliere(
-    'Leitstellensimulation gestartet',
-    'system',
-  )
-
+  timer = setInterval(aktualisiereUhrzeit, SIMULATIONS_TAKT_MS)
+  protokolliere('Leitstellensimulation gestartet', 'system')
   planeNaechstenNotruf()
-})
-
+}
 onUnmounted(() => {
   clearInterval(timer)
-  clearInterval(fahrzeugTimer)
-
   stoppeKlingelTon()
-
-  if (naechsterNotrufTimer) {
-    clearTimeout(naechsterNotrufTimer)
-  }
 })
 
 // --------------------------------------------------
 // FAHRZEUGE
 // --------------------------------------------------
 
-const fahrzeuge = ref([
-  {
-    id: 1,
-    funkrufname: 'RK Regensburg 71/1',
-    typ: 'RTW',
-    bereich: 'RD',
-    status: 2,
-     statusZeiten: {
-    1: null,
-    2: '14:02:16',
-    3: null,
-    4: null,
-    7: null,
-    8: null,
-  },
-    einsatzId: null,
-    naechsterStatusIn: 0,
-
-    position: {
-      lat: 49.0148,
-      lng: 12.0825,
-    },
-
-    route: [],
-    routeSchritt: 0,
-    routeSchritte: 0,
-  },
-
-  {
-    id: 2,
-    funkrufname: 'RK Regensburg 71/2',
-    typ: 'RTW',
-    status: 2,
-    bereich: 'RD',
-    einsatzId: null,
-    naechsterStatusIn: 0,
-
-    position: {
-      lat: 49.0146,
-      lng: 12.083,
-    },
-
-    route: [],
-    routeSchritt: 0,
-    routeSchritte: 0,
-  },
-
-  {
-    id: 3,
-    funkrufname: 'RK Regensburg 76/1',
-    typ: 'NEF',
-    bereich: 'RD',
-    status: 1,
-    einsatzId: null,
-    naechsterStatusIn: 0,
-
-    position: {
-      lat: 49.0128,
-      lng: 12.1035,
-    },
-
-    route: [],
-    routeSchritt: 0,
-    routeSchritte: 0,
-  },
-
-  {
-    id: 4,
-    funkrufname: 'Florian Regensburg 40/1',
-    typ: 'HLF',
-    bereich: 'FW',
-    status: 2,
-    einsatzId: null,
-    naechsterStatusIn: 0,
-
-    position: {
-      lat: 49.0205,
-      lng: 12.112,
-    },
-
-    route: [],
-    routeSchritt: 0,
-    routeSchritte: 0,
-  },
-  {
-  id: 5,
-  funkrufname: 'RK Regensburg 7/1',
-  typ: 'ELRD',
-  bereich: 'RD',
-  status: 2,
-  einsatzId: null,
-  naechsterStatusIn: 0,
-
-  // Position / Routing-Felder
-  // analog zu deinen anderen Fahrzeugen
-},
-])
+const fahrzeuge = ref([])
 
 // --------------------------------------------------
 // EINSÄTZE
 // --------------------------------------------------
 
-const einsaetze = ref([
-  {
-  id: 1001,
-  meldung: 'Bewusstlose Person',
-  ort: 'Musterstraße 12',
-  stichwort: 'RD2',
-  bemerkung: 'Person nicht ansprechbar, Atmung vorhanden.',
-  status: 'offen',
-  fahrzeuge: [],
+const einsaetze = ref([])
+const leitstellenHinweise = ref([])
 
-  position: {
-    lat: 49.0255,
-    lng: 12.0955,
-  },
-},
- {
-  id: 1002,
-  meldung: 'Verkehrsunfall',
-  ort: 'Hauptstraße 48',
-  stichwort: 'THL 1',
-  bemerkung: 'Zwei Pkw beteiligt. Lage noch unklar.',
-  status: 'offen',
-  fahrzeuge: [],
-
-  position: {
-    lat: 49.007,
-    lng: 12.118,
-  },
-},
-])
-
-const ausgewaehlterEinsatzId = ref(1001)
+const ausgewaehlterEinsatzId = ref(null)
 const szenarioPositionen = {
   1: {
     lat: 49.0185,
@@ -286,6 +178,31 @@ const ausgewaehlterEinsatz = computed(() => {
 
 function einsatzAuswaehlen(id) {
   ausgewaehlterEinsatzId.value = id
+}
+
+function einsatzDokumentationAendern({ id, text }) {
+  const einsatz = einsaetze.value.find(e => e.id === id)
+  if (einsatz && typeof text === 'string') einsatz.dokumentationEntwurf = text
+}
+
+function einsatzNotizAendern({ id, text }) {
+  gemeinsameHinweiseAendern(einsaetze.value, id, text)
+}
+
+function bedarfstestErstellen(art) {
+  const einsatz = bedarfsTestEinsatz(art, naechsteEinsatzId())
+  einsaetze.value.push(einsatz)
+  einsatzAusListeOeffnen(einsatz.id)
+  protokolliere(`Einsatz #${einsatz.id}: ${einsatz.meldung} angelegt`, 'einsatz')
+}
+
+function generatortestErstellen() {
+  const einsatz = { ...generiereEinsatz('zimmerbrand'), id: naechsteEinsatzId(),
+    quelle: 'generatortest', ort: 'Generatortest ohne Kartenposition', position: null,
+    bemerkung: '[TEST] Datengetriebener Zimmerbrand. Erkundung erfolgt nach Eintreffen eines Fahrzeugs.' }
+  einsaetze.value.push(einsatz)
+  einsatzAusListeOeffnen(einsatz.id)
+  protokolliere(`Generatortest #${einsatz.id}: Zimmerbrand angelegt`, 'einsatz')
 }
 
 function naechsteEinsatzId() {
@@ -372,6 +289,9 @@ function autoSplitEinsatz() {
     return
   }
 
+  const aufloesung = mitRdVerknuepfung(haupteinsatz.stichwoerter)
+  haupteinsatz.stichwoerter = aufloesung.stichwoerter
+  haupteinsatz.rdVerknuepfung = aufloesung.rdVerknuepfung
   const neueUntereinsaetze = []
 
   // --------------------------------
@@ -408,6 +328,9 @@ function autoSplitEinsatz() {
 
       parentId:
         haupteinsatz.id,
+      schlagwort: haupteinsatz.schlagwort || Object.values(haupteinsatz.stichwoerter).find(e => e?.kennung)?.kennung || '',
+      meldebildId: haupteinsatz.meldebildId,
+      erfassung: haupteinsatz.erfassung ? { ...haupteinsatz.erfassung } : undefined,
 
       meldung:
         haupteinsatz.meldung,
@@ -472,35 +395,8 @@ function autoSplitEinsatz() {
 // aus Feuerwehr-Stichwort
 // --------------------------------
 
-let rdVerknuepfung = null
+const rdVerknuepfung = aufloesung.rdVerknuepfung
 
-const fwStichwoerter = [
-  haupteinsatz.stichwoerter?.B,
-  haupteinsatz.stichwoerter?.T,
-  haupteinsatz.stichwoerter?.ABC,
-].filter(Boolean)
-
-for (
-  const fwStichwort
-  of fwStichwoerter
-) {
-  const gefunden =
-    findeRdVerknuepfung(
-      fwStichwort,
-    )
-
-  if (gefunden) {
-    rdVerknuepfung = gefunden
-    break
-  }
-}
-
-if (rdVerknuepfung) {
-  console.log(
-    'RD-Verknüpfung gefunden:',
-    rdVerknuepfung,
-  )
-}
   // --------------------------------
   // Rettungsdienst
   // --------------------------------
@@ -524,6 +420,9 @@ if (rdVerknuepfung) {
 
       parentId:
         haupteinsatz.id,
+      schlagwort: haupteinsatz.schlagwort || Object.values(haupteinsatz.stichwoerter).find(e => e?.kennung)?.kennung || '',
+      meldebildId: haupteinsatz.meldebildId,
+      erfassung: haupteinsatz.erfassung ? { ...haupteinsatz.erfassung } : undefined,
 
       meldung:
         haupteinsatz.meldung,
@@ -556,7 +455,7 @@ if (rdVerknuepfung) {
 
   rdVerknuepfung:
     rdVerknuepfung
-      ? rdVerknuepfung.verknuepfungNeu
+      ? rdVerknuepfung
       : null,
 
       status: 'offen',
@@ -815,9 +714,7 @@ echterBedarf.forEach(
       fahrzeuge.value.filter(
         (fahrzeug) => {
           return (
-            erlaubteTypen.includes(
-              fahrzeug.typ,
-            ) &&
+            (erlaubteTypen.includes(fahrzeug.typ) || erlaubteTypen.includes(simulationsTyp(fahrzeug))) &&
 
             (
               !zielBereich ||
@@ -979,18 +876,10 @@ const ANRUF_TIMEOUT = 20
 let audioContext = null
 let klingelTonIntervall = null
 
-function aktuelleZeit() {
-  return new Date().toLocaleTimeString('de-DE', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
-}
-
-function protokolliere(text, typ = 'info') {
+function protokolliere(text, typ = 'info', zeit = simulationsZeit.value) {
   ereignisse.value.unshift({
     id: `${Date.now()}-${Math.random()}`,
-    zeit: aktuelleZeit(),
+    zeit: new Date(zeit).toLocaleTimeString('de-DE'),
     text,
     typ,
   })
@@ -1082,72 +971,99 @@ function stoppeKlingelTon() {
 }
 
 // Timer bis zum nächsten Anruf
-let naechsterNotrufTimer = null
+let naechsterNotrufAm = null
 
 const aktuellesSzenario = ref(null)
 
 const gespraech = ref([])
+const funk = ref({ aktiveGruppeId: null, teilnehmerId: null, vorbereiteteMeldung: null })
+function sprechwunschUebernehmen(id, bestaetigen) {
+  try {
+    sprechwunschFreigeben(id, leitstellenHinweise.value, fahrzeuge.value, funk.value, einsaetze.value, gespraech.value, simulationsZeit.value)
+    bestaetigen?.({})
+  } catch (fehler) { bestaetigen?.({ fehler: fehler.message }) }
+}
+function funkteilnehmerAuswaehlen(id) {
+  funk.value.teilnehmerId = fahrzeuge.value.some(f => f.id === id && fahrzeugFunkgruppeId(f) === funk.value.aktiveGruppeId) ? id : null
+}
+function sprechwunschErzeugen({ fahrzeugId, prioritaet }, bestaetigen) {
+  try {
+    const fahrzeug = fahrzeuge.value.find(f => f.id === fahrzeugId)
+    if (!fahrzeug) throw new Error('Fahrzeug nicht gefunden.')
+    sprechwunschHinzufuegen(leitstellenHinweise.value, fahrzeug, prioritaet, simulationsZeit.value)
+    bestaetigen?.({})
+  } catch (fehler) { bestaetigen?.({ fehler: fehler.message }) }
+}
+const funkgruppen = computed(() => funkgruppenAusFahrzeugen(fahrzeuge.value))
+function funkgruppeAuswaehlen(id) {
+  if (id !== funk.value.aktiveGruppeId) funk.value.teilnehmerId = null
+  funk.value.aktiveGruppeId = funkgruppen.value.some(g => g.id === id) ? id : null
+}
+function funkspruchSenden({ gruppeId, fahrzeugId, text, meldungId }, bestaetigen) {
+  try {
+    const fahrzeug = fahrzeugId == null ? null : fahrzeuge.value.find(f => f.id === fahrzeugId)
+    if (fahrzeugId != null && !fahrzeug) throw new Error('Fahrzeug nicht gefunden.')
+    if (gruppeId !== funk.value.aktiveGruppeId) throw new Error('Bitte die aktive Funkgruppe prüfen.')
+    const meldung = meldungId ? funk.value.vorbereiteteMeldung : null
+    if (meldungId && (!meldung || meldung.id !== meldungId || meldung.gruppeId !== gruppeId || meldung.fahrzeugId !== fahrzeugId)) throw new Error('Die angenommene Meldung ist nicht mehr verfügbar.')
+    gespraech.value.push(funkspruchErzeugen({ gruppeId, gruppen: funkgruppen.value, fahrzeug, text: meldung ? meldung.text : text, zeit: simulationsZeit.value }))
+    if (meldung) {
+      funkLageBekanntgeben(meldung, einsaetze.value)
+      funk.value.vorbereiteteMeldung = null
+    }
+    bestaetigen?.({})
+  } catch (fehler) { bestaetigen?.({ fehler: fehler.message }) }
+}
+const telefonGespraech = computed(() => gespraech.value.filter(e => istSprachbeitrag(e) && e.kanal === 'telefon'))
 const frage = ref('')
 
 const chatFenster = ref(null)
 
-const notrufDaten = ref({
-  anrufer: '',
-  rueckrufnummer: '',
-  ort: '',
-  strasse: '',
-  hausnummer: '',
-  meldung: '',
-  stichwort: '',
-  notiz: '',
-})
+const notrufDaten = ref(leereEinsatzErfassung())
+const manuelleErfassungAktiv = ref(false)
+const manuelleErfassungDaten = ref(leereEinsatzErfassung())
+
+function manuelleErfassungStarten() {
+  if (geocodierungLaeuft.value) return
+  if (!manuelleErfassungAktiv.value) {
+    manuelleErfassungDaten.value = leereEinsatzErfassung()
+  }
+  manuelleErfassungAktiv.value = true
+}
+
+function manuelleErfassungAbbrechen() {
+  if (geocodierungLaeuft.value) return
+  manuelleErfassungAktiv.value = false
+  manuelleErfassungDaten.value = leereEinsatzErfassung()
+}
 
 const notrufDauer = computed(() => {
   const minuten = Math.floor(notrufSekunden.value / 60)
-  const sekunden = notrufSekunden.value % 60
+  const sekunden = Math.floor(notrufSekunden.value) % 60
 
   return `${String(minuten).padStart(2, '0')}:${String(sekunden).padStart(2, '0')}`
 })
 
 const klingelDauer = computed(() => {
   const minuten = Math.floor(klingelSekunden.value / 60)
-  const sekunden = klingelSekunden.value % 60
+  const sekunden = Math.floor(klingelSekunden.value) % 60
 
   return `${String(minuten).padStart(2, '0')}:${String(sekunden).padStart(2, '0')}`
 })
 
 function zufaelligesSzenario() {
-  const index = Math.floor(
-    Math.random() * notrufSzenarien.length,
-  )
-
-  return notrufSzenarien[index]
+  try { return notrufImGebiet(notrufSzenarien, gebietLaden()) }
+  catch (e) { protokolliere(`Gebietsdaten nicht verfügbar: ${e.message}`, 'warnung'); return null }
 }
 
 function zufaelligeWartezeit() {
-  // Zufällige Wartezeit zwischen 20 und 60 Sekunden
-  return Math.floor(Math.random() * 41) + 20
+  return notrufWartezeit(einsatzFrequenz.value)
 }
 
 function planeNaechstenNotruf() {
-  // Alten Timer sicherheitshalber entfernen
-  if (naechsterNotrufTimer) {
-    clearTimeout(naechsterNotrufTimer)
-  }
-
-  // Während eines Gesprächs oder klingelnden Anrufs
-  // keinen weiteren Anruf erzeugen
-  if (notrufDialog.value || eingehenderNotruf.value) {
-    return
-  }
-
-  const wartezeit = zufaelligeWartezeit()
-
-  console.log(`Nächster Notruf in ${wartezeit} Sekunden`)
-
-  naechsterNotrufTimer = setTimeout(() => {
-    starteEingehendenNotruf()
-  }, wartezeit * 1000)
+  naechsterNotrufAm = null
+  if (!simulationGestartet.value || notrufDialog.value || eingehenderNotruf.value) return
+  naechsterNotrufAm = simulationsZeit.value + zufaelligeWartezeit() * 1000
 }
 
 function starteEingehendenNotruf() {
@@ -1158,8 +1074,15 @@ function starteEingehendenNotruf() {
     return
   }
 
+  naechsterNotrufAm = null
   wartendesSzenario.value =
     zufaelligesSzenario()
+
+  if (!wartendesSzenario.value) {
+    protokolliere('Kein automatischer Notruf: aktive Ortschaften mit Faktor über 0 und importierte Adressen fehlen.', 'warnung')
+    planeNaechstenNotruf()
+    return
+  }
 
   klingelSekunden.value = 0
   eingehenderNotruf.value = true
@@ -1195,14 +1118,12 @@ function notrufVerpasst() {
 
 // Nur zum Testen während der Entwicklung
 function testNotrufJetzt() {
-  if (naechsterNotrufTimer) {
-    clearTimeout(naechsterNotrufTimer)
-  }
-
+  naechsterNotrufAm = null
   starteEingehendenNotruf()
 }
 
 function notrufAnnehmen() {
+  if (!eingehenderNotruf.value || notrufDialog.value) return
   const annahmezeit = klingelDauer.value
 
 stoppeKlingelTon()
@@ -1217,31 +1138,22 @@ protokolliere(
     aktuellesSzenario.value = zufaelligesSzenario()
   }
 
+  if (!aktuellesSzenario.value) { eingehenderNotruf.value = false; planeNaechstenNotruf(); return }
+
   eingehenderNotruf.value = false
   klingelSekunden.value = 0
   wartendesSzenario.value = null
 
-  notrufDaten.value = {
-    anrufer: '',
-    rueckrufnummer: '',
-    ort: '',
-    strasse: '',
-    hausnummer: '',
-    meldung: '',
-    stichwort: '',
-    notiz: '',
-  }
+  notrufDaten.value = leereEinsatzErfassung()
 
   frage.value = ''
   notrufSekunden.value = 0
 
-  gespraech.value = [
-    {
-      id: Date.now(),
-      rolle: 'anrufer',
-      text: aktuellesSzenario.value.startText,
-    },
-  ]
+  gespraech.value = gespraech.value.filter(e => e.kanal !== 'telefon')
+  gespraech.value.push(kommunikationsBeitrag({
+    kanal: 'telefon', rolle: 'anrufer',
+    text: aktuellesSzenario.value.startText, zeit: simulationsZeit.value,
+  }))
 
   notrufDialog.value = true
 
@@ -1251,12 +1163,13 @@ protokolliere(
 
 
 function notrufBeenden() {
+  if (geocodierungLaeuft.value) return
   stoppeKlingelTon()
 
   notrufDialog.value = false
   notrufSekunden.value = 0
   aktuellesSzenario.value = null
-  gespraech.value = []
+  gespraech.value = gespraech.value.filter(e => e.kanal !== 'telefon')
   frage.value = ''
 
   protokolliere(
@@ -1302,94 +1215,83 @@ function passendeAntwort(frageText) {
   return standardAntworten[index]
 }
 
+async function telefonFrageSenden(frageText, frageId = null) {
+  const text = frageText?.trim()
+  if (!text || !notrufDialog.value || !aktuellesSzenario.value) return
+  const antwort = frageId ? antwortAufFrage(aktuellesSzenario.value, frageId) : passendeAntwort(text)
+  // Beide Inhalte vor dem UI-await erzeugen: kein Wechsel des Anrufers dazwischen.
+  const beitraege = [
+    kommunikationsBeitrag({ kanal: 'telefon', rolle: 'disponent', text, zeit: simulationsZeit.value }),
+    kommunikationsBeitrag({ kanal: 'telefon', rolle: 'anrufer', text: antwort, zeit: simulationsZeit.value }),
+  ]
+  gespraech.value.push(...beitraege)
+  await scrollChatNachUnten()
+}
 async function frageSenden() {
-  const text = frage.value.trim()
-
-  if (
-    text === '' ||
-    !aktuellesSzenario.value
-  ) {
-    return
-  }
-
-  gespraech.value.push({
-    id: Date.now(),
-    rolle: 'disponent',
-    text,
-  })
-
+  const text = frage.value
   frage.value = ''
-
-  await scrollChatNachUnten()
-
-  const antwort = passendeAntwort(text)
-
-  gespraech.value.push({
-    id: Date.now() + 1,
-    rolle: 'anrufer',
-    text: antwort,
-  })
-
-  await scrollChatNachUnten()
+  await telefonFrageSenden(text)
+}
+async function frageAusKatalogSenden({ kategorie, frageId } = {}) {
+  const katalogEintrag = katalogFrage(kategorie, frageId)
+  if (!katalogEintrag) return
+  await telefonFrageSenden(katalogEintrag.text, katalogEintrag.id)
 }
 
 async function einsatzAusNotrufErstellen() {
-  if (notrufDaten.value.meldung.trim() === '') {
+  return einsatzAusErfassungErstellen('notruf')
+}
+
+async function einsatzAusErfassungErstellen(quelle) {
+  const manuell = quelle === 'manuell'
+  if (geocodierungLaeuft.value || !(manuell ? manuelleErfassungAktiv.value : notrufDialog.value)) return
+  const daten = { ...(manuell ? manuelleErfassungDaten.value : notrufDaten.value) }
+
+  if (daten.meldung.trim() === '') {
     alert('Bitte ein Meldebild eingeben.')
     return
   }
 
   if (
-    notrufDaten.value.strasse.trim() === '' &&
-    notrufDaten.value.ort.trim() === ''
+    daten.strasse.trim() === '' &&
+    daten.ort.trim() === '' &&
+    daten.ortsteil.trim() === '' &&
+    daten.objekt.trim() === ''
   ) {
     alert('Bitte mindestens einen Einsatzort eingeben.')
     return
   }
 
-  const adresseTeile = []
-
-  if (notrufDaten.value.strasse.trim() !== '') {
-    let strasse = notrufDaten.value.strasse.trim()
-
-    if (notrufDaten.value.hausnummer.trim() !== '') {
-      strasse += ` ${notrufDaten.value.hausnummer.trim()}`
-    }
-
-    adresseTeile.push(strasse)
-  }
-
-  if (notrufDaten.value.ort.trim() !== '') {
-    adresseTeile.push(notrufDaten.value.ort.trim())
-  }
+  const adressText = einsatzAdresse(daten)
+  const adresseTeile = [daten.objekt, daten.station, adressText].filter(Boolean)
 
   const bemerkungen = []
 
-  if (notrufDaten.value.anrufer.trim() !== '') {
+  if (daten.anrufer.trim() !== '') {
     bemerkungen.push(
-      `Anrufer: ${notrufDaten.value.anrufer.trim()}`,
+      `Anrufer: ${daten.anrufer.trim()}`,
     )
   }
 
-  if (notrufDaten.value.rueckrufnummer.trim() !== '') {
+  if (daten.rueckrufnummer.trim() !== '') {
     bemerkungen.push(
-      `Rückrufnummer: ${notrufDaten.value.rueckrufnummer.trim()}`,
+      `Rückrufnummer: ${daten.rueckrufnummer.trim()}`,
     )
   }
 
-  if (notrufDaten.value.notiz.trim() !== '') {
+  if (daten.notiz.trim() !== '') {
     bemerkungen.push(
-      notrufDaten.value.notiz.trim(),
+      daten.notiz.trim(),
     )
   }
 
-  const neueId = naechsteEinsatzId()
 
 const szenarioId =
-  aktuellesSzenario.value?.id
+  manuell ? null : aktuellesSzenario.value?.id
+const szenarioAdressePasst = !manuell && ['strasse', 'hausnummer', 'ort', 'ortsteil'].every(f => (daten[f] || '') === (aktuellesSzenario.value?.daten?.[f] || ''))
 
 const suchadresse =
-  adresseTeile.join(', ')
+  [daten.objekt, adressText].filter(Boolean).join(', ')
 
 let geocode = null
 
@@ -1397,7 +1299,7 @@ geocodierungLaeuft.value = true
 
 try {
   geocode =
-    await findeEinsatzPosition(
+    daten.position || await findeEinsatzPosition(
       suchadresse,
     )
 } catch (fehler) {
@@ -1420,25 +1322,44 @@ const position = geocode
       lng: geocode.lng,
     }
   : (
-      szenarioPositionen[
+      !szenarioAdressePasst ? null : aktuellesSzenario.value?.position ?? szenarioPositionen[
         szenarioId
       ] ?? null
     )
 
+let gebietsErgebnis
+try { gebietsErgebnis = gebietsPruefung({ ...daten, position, gebietId: daten.gebietId || (szenarioAdressePasst && aktuellesSzenario.value?.gebietId) || null }) }
+catch { gebietsErgebnis = { erlaubt: false, grund: 'Gebietsdaten konnten nicht geprüft werden.' } }
+if (!gebietsErgebnis.erlaubt && !confirm(`${gebietsErgebnis.grund} Einsatz dennoch manuell anlegen?`)) return
+
 const stichwoerter =
   meldebildStichwoerter(
-    notrufDaten.value.meldung.trim(),
+    daten.meldung.trim(),
   )
 
+const katalogEintrag = stichwortKatalog.find(e => e.id === daten.meldebildId)
+const aufloesung = katalogEintrag
+  ? katalogStichwoerter(katalogEintrag)
+  : mitRdVerknuepfung(stichwoerter)
+Object.assign(stichwoerter, aufloesung.stichwoerter)
+const neueId = naechsteEinsatzId()
 einsaetze.value.push({
   id: neueId,
+  erfassung: { ...daten, position },
+  gebietId: gebietsErgebnis.erlaubt ? gebietsErgebnis.ort.id : null,
+  quelle,
+  schlagwort: katalogEintrag?.kennung || '',
+  rdVerknuepfung: aufloesung.rdVerknuepfung,
+  meldebildId: daten.meldebildId,
+  sondersignal: daten.sondersignal,
+  prioritaet: daten.prioritaet,
 
   typ: 'haupt',
   bereich: null,
   parentId: null,
 
   meldung:
-    notrufDaten.value.meldung.trim(),
+    daten.meldung.trim(),
 
   ort:
     adresseTeile.join(', '),
@@ -1460,18 +1381,23 @@ einsaetze.value.push({
 })
 
   ausgewaehlterEinsatzId.value = neueId
+  aktivesModul.value = 'einsatz'
 
   protokolliere(
-  `Einsatz #${neueId} eröffnet – ${notrufDaten.value.meldung.trim()}`,
+  `Einsatz #${neueId} eröffnet – ${daten.meldung.trim()}`,
   'einsatz',
 )
 
-  notrufDialog.value = false
-  notrufSekunden.value = 0
-  aktuellesSzenario.value = null
-  gespraech.value = []
-
-  planeNaechstenNotruf()
+  if (manuell) {
+    manuelleErfassungAktiv.value = false
+    manuelleErfassungDaten.value = leereEinsatzErfassung()
+  } else {
+    notrufDialog.value = false
+    notrufSekunden.value = 0
+    aktuellesSzenario.value = null
+    gespraech.value = gespraech.value.filter(e => e.kanal !== 'telefon')
+    planeNaechstenNotruf()
+  }
 }
 
 // --------------------------------------------------
@@ -1563,6 +1489,11 @@ async function einsatzAnlegen() {
   // ------------------------------------------
   // BESTEHENDEN EINSATZ BEARBEITEN
   // ------------------------------------------
+
+  let gebietsWarnung = ''
+  try { const pruefung = gebietsPruefung(geocode || { position }); if (!pruefung.erlaubt) gebietsWarnung = pruefung.grund }
+  catch { gebietsWarnung = 'Gebietsdaten konnten nicht geprüft werden.' }
+  if (gebietsWarnung && !confirm(`${gebietsWarnung} Eingabe dennoch manuell übernehmen?`)) return
 
   if (bearbeiteterEinsatzId.value !== null) {
     const einsatz =
@@ -1721,27 +1652,6 @@ function fahrzeugHinweis(fahrzeug) {
 // FAHRZEUGSTATUS + ZEITSTEMPEL
 // --------------------------------------------------
 
-function setzeFahrzeugStatus(
-  fahrzeug,
-  neuerStatus,
-) {
-  fahrzeug.status = neuerStatus
-
-  if (!fahrzeug.statusZeiten) {
-    fahrzeug.statusZeiten = {}
-  }
-
-  fahrzeug.statusZeiten[
-    neuerStatus
-  ] = new Date().toLocaleTimeString(
-    'de-DE',
-    {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    },
-  )
-}
 // --------------------------------------------------
 // DISPOSITION
 // --------------------------------------------------
@@ -1851,387 +1761,29 @@ function istFahrzeugDeaktiviert(fahrzeug) {
 // FAHRZEUG-LEBENSZYKLUS
 // --------------------------------------------------
 
-function zufallsSekunden(min, max) {
-  return (
-    Math.floor(Math.random() * (max - min + 1)) +
-    min
-  )
-}
-
-function aktualisiereFahrzeugEinsaetze() {
-  fahrzeuge.value.forEach((fahrzeug) => {
-    if (fahrzeug.einsatzId === null) {
-      return
-    }
-
-    // STATUS 3: Fahrt zum Einsatzort
-    if (
-      fahrzeug.status === 3 &&
-      fahrzeug.route.length > 0
-    ) {
-      fahrzeug.routeSchritt++
-
-      const fortschritt =
-        fahrzeug.routeSchritt /
-        fahrzeug.routeSchritte
-
-      const index = Math.min(
-        fahrzeug.route.length - 1,
-        Math.floor(
-          fortschritt *
-            (fahrzeug.route.length - 1),
-        ),
-      )
-
-      const punkt = fahrzeug.route[index]
-
-      fahrzeug.position = {
-        lat: punkt.lat,
-        lng: punkt.lng,
-      }
-
-      fahrzeug.naechsterStatusIn =
-        Math.max(
-          0,
-          fahrzeug.routeSchritte -
-            fahrzeug.routeSchritt,
-        )
-
-      // Einsatzort erreicht
-      if (
-        fahrzeug.routeSchritt >=
-        fahrzeug.routeSchritte
-      ) {
-        const letzterPunkt =
-          fahrzeug.route[
-            fahrzeug.route.length - 1
-          ]
-
-        fahrzeug.position = {
-          lat: letzterPunkt.lat,
-          lng: letzterPunkt.lng,
-        }
-
-        fahrzeug.route = []
-        fahrzeug.routeSchritt = 0
-        fahrzeug.routeSchritte = 0
-
-        setzeFahrzeugStatus(
-  fahrzeug,
-  4,
-)
-
-        fahrzeug.naechsterStatusIn =
-          zufallsSekunden(15, 30)
-
-        protokolliere(
-          `${fahrzeug.funkrufname} meldet Status 4 – Einsatzstelle erreicht`,
-          'fahrzeug',
-        )
-      }
-
-      return
-    }
-
-    // STATUS 3 ohne verfügbare Route:
-    // normaler Countdown als Fallback
-    if (
-      fahrzeug.status === 3 &&
-      fahrzeug.route.length === 0
-    ) {
-      if (fahrzeug.naechsterStatusIn > 0) {
-        fahrzeug.naechsterStatusIn--
-      }
-
-      if (fahrzeug.naechsterStatusIn <= 0) {
-        setzeFahrzeugStatus(
-  fahrzeug,
-  4,
-)
-
-        fahrzeug.naechsterStatusIn =
-          zufallsSekunden(15, 30)
-
-        protokolliere(
-          `${fahrzeug.funkrufname} meldet Status 4 – Einsatzstelle erreicht`,
-          'fahrzeug',
-        )
-      }
-
-      return
-    }
-
-    // Alle anderen Statusphasen
-    if (fahrzeug.naechsterStatusIn > 0) {
-      fahrzeug.naechsterStatusIn--
-    }
-
-    if (fahrzeug.naechsterStatusIn <= 0) {
-      naechsteFahrzeugPhase(fahrzeug)
-    }
-  })
-}
-function naechsteFahrzeugPhase(fahrzeug) {
-  // RTW: Status 4 -> Status 7
-  if (
-    fahrzeug.status === 4 &&
-    fahrzeug.typ === 'RTW'
-  ) {
-    setzeFahrzeugStatus(
-  fahrzeug,
-  7,
-)
-
-    fahrzeug.naechsterStatusIn =
-      zufallsSekunden(12, 25)
-
-    protokolliere(
-      `${fahrzeug.funkrufname} meldet Status 7 – Patient aufgenommen`,
-      'fahrzeug',
-    )
-
-    return
-  }
-
-  // NEF / Feuerwehr nach Einsatzstelle wieder frei
-  if (fahrzeug.status === 4) {
-    fahrzeugEinsatzBeenden(fahrzeug)
-    return
-  }
-
-  // RTW: Status 7 -> Status 8
-  if (fahrzeug.status === 7) {
-    setzeFahrzeugStatus(
-  fahrzeug,
-  8,
-)
-
-    fahrzeug.naechsterStatusIn =
-      zufallsSekunden(10, 20)
-
-    protokolliere(
-      `${fahrzeug.funkrufname} meldet Status 8 – Transportziel erreicht`,
-      'fahrzeug',
-    )
-
-    return
-  }
-
-  // RTW nach Status 8 wieder frei
-  if (fahrzeug.status === 8) {
-    fahrzeugEinsatzBeenden(fahrzeug)
-  }
-}
-
-function fahrzeugEinsatzBeenden(fahrzeug) {
-  const einsatzId = fahrzeug.einsatzId
-
-  const einsatz = einsaetze.value.find(
-    (eintrag) => eintrag.id === einsatzId,
-  )
-
-  // RD-Fahrzeuge werden über Funk einsatzbereit.
-  // Feuerwehr kehrt auf Status 2 zurück.
- if (
-  fahrzeug.typ === 'RTW' ||
-  fahrzeug.typ === 'NEF' ||
-  fahrzeug.typ === 'KTW'
-) {
-  setzeFahrzeugStatus(
-    fahrzeug,
-    1,
-  )
-} else {
-  setzeFahrzeugStatus(
-    fahrzeug,
-    2,
-  )
-}
-
-  fahrzeug.einsatzId = null
-  fahrzeug.naechsterStatusIn = 0
-
-  protokolliere(
-    `${fahrzeug.funkrufname} wieder einsatzbereit – Status ${fahrzeug.status}`,
-    'fahrzeug',
-  )
-
-  if (!einsatz) {
-    return
-  }
-
-  // Fahrzeug aus den aktuell gebundenen
-  // Einsatzmitteln entfernen
-  einsatz.fahrzeuge =
-    einsatz.fahrzeuge.filter(
-      (id) => id !== fahrzeug.id,
-    )
-
-  // Wenn kein Fahrzeug mehr an den Einsatz
-  // gebunden ist, gilt er als beendet.
-  if (
-    einsatz.status === 'alarmiert' &&
-    einsatz.fahrzeuge.length === 0
-  ) {
-    einsatz.status = 'abgeschlossen'
-
-    protokolliere(
-      `Einsatz #${einsatz.id} abgeschlossen`,
-      'erfolg',
-    )
-  }
-}
-// --------------------------------------------------
-// ALARMIERUNG
-// --------------------------------------------------
-
 async function alarmieren() {
-  const einsatz =
-    ausgewaehlterEinsatz.value
-
-  if (!einsatz) {
-    return
-  }
-
-  // Nur Fahrzeuge ermitteln, die zwar
-  // ausgewählt, aber für diesen Einsatz
-  // NOCH NICHT alarmiert wurden.
-  const zuAlarmierendeFahrzeuge =
-    fahrzeuge.value.filter(
-      (fahrzeug) => {
-        return (
-          einsatz.fahrzeuge.includes(
-            fahrzeug.id,
-          ) &&
-          fahrzeug.einsatzId !==
-            einsatz.id
-        )
-      },
-    )
-
-  if (
-    zuAlarmierendeFahrzeuge.length ===
-    0
-  ) {
-    alert(
-      'Bitte mindestens ein weiteres verfügbares Fahrzeug auswählen.',
-    )
-
-    return
-  }
-
-  const istNachalarmierung =
-    einsatz.status === 'alarmiert'
-
+  const einsatz = ausgewaehlterEinsatz.value
+  if (!einsatz || einsatz.status === 'abgeschlossen') return
+  aktualisiereUhrzeit()
+  if (einsatz.status === 'abgeschlossen') return
+  const neu = fahrzeuge.value.filter(f => einsatz.fahrzeuge.includes(f.id) && f.einsatzId == null && [1, 2].includes(f.status))
+  if (!neu.length) { alert('Bitte mindestens ein weiteres verfügbares Fahrzeug auswählen.'); return }
+  einsatzAlarmiert(einsaetze.value, einsatz, simulationsZeit.value, lebenszyklusEreignis)
   einsatz.status = 'alarmiert'
-
-  // Nur die NEU ausgewählten Fahrzeuge
-  // auf Status 3 setzen.
-  zuAlarmierendeFahrzeuge.forEach(
-    (fahrzeug) => {
-      setzeFahrzeugStatus(
-  fahrzeug,
-  3,
-)
-      fahrzeug.einsatzId =
-        einsatz.id
-
-      // Fallback, falls Routing fehlschlägt
-      fahrzeug.naechsterStatusIn =
-        10
-    },
-  )
-
-  const fahrzeugNamen =
-    zuAlarmierendeFahrzeuge
-      .map(
-        (fahrzeug) =>
-          fahrzeug.funkrufname,
-      )
-      .join(', ')
-
-  protokolliere(
-    istNachalarmierung
-      ? `Einsatz #${einsatz.id}: Nachalarmierung – ${fahrzeugNamen}`
-      : `Einsatz #${einsatz.id}: ${fahrzeugNamen} alarmiert`,
-    'alarm',
-  )
-
-  // Keine Kartenposition vorhanden:
-  // Fahrzeug läuft über den Fallback-Timer.
-  if (!einsatz.position) {
-    protokolliere(
-      `Einsatz #${einsatz.id}: keine Kartenposition vorhanden`,
-      'warnung',
-    )
-
-    return
-  }
-
-  await Promise.all(
-    zuAlarmierendeFahrzeuge.map(
-      async (fahrzeug) => {
-        try {
-          const route =
-            await routeBerechnen(
-              fahrzeug.position,
-              einsatz.position,
-            )
-
-          fahrzeug.route =
-            route.punkte
-
-          fahrzeug.routeSchritt = 0
-
-          const simulierteFahrzeit =
-            Math.round(
-              route.dauerSekunden /
-                20,
-            )
-
-          fahrzeug.routeSchritte =
-            Math.max(
-              8,
-              Math.min(
-                35,
-                simulierteFahrzeit,
-              ),
-            )
-
-          fahrzeug.naechsterStatusIn =
-            fahrzeug.routeSchritte
-
-          const kilometer =
-            (
-              route.distanzMeter /
-              1000
-            ).toFixed(1)
-
-          protokolliere(
-            `${fahrzeug.funkrufname}: Route ${kilometer} km – simulierte Fahrzeit ${fahrzeug.routeSchritte} s`,
-            'fahrzeug',
-          )
-        } catch (fehler) {
-          console.error(
-            'Routingfehler:',
-            fehler,
-          )
-
-          fahrzeug.route = []
-          fahrzeug.routeSchritt = 0
-          fahrzeug.routeSchritte = 0
-
-          fahrzeug.naechsterStatusIn =
-            10
-
-          protokolliere(
-            `${fahrzeug.funkrufname}: Routing nicht verfügbar – verwende simulierte Fahrzeit`,
-            'warnung',
-          )
-        }
-      },
-    ),
-  )
+  for (const f of neu) fahrzeugAlarmieren(f, einsatz.id, simulationsZeit.value)
+  protokolliere(`Einsatz #${einsatz.id}: ${neu.map(f => f.funkrufname).join(', ')} alarmiert`, 'alarm')
+  await Promise.all(neu.map(async f => {
+    const fahrt = f.fahrt
+    if (!f.position || !einsatz.position) return
+    try {
+      const route = await routeBerechnen(f.position, einsatz.position)
+      if (fahrzeugRouteUebernehmen(f, fahrt, route)) {
+        protokolliere(`${f.funkrufname}: Route ${(route.distanzMeter / 1000).toFixed(1)} km, ${Math.ceil(route.dauerSekunden / 60)} Simulationsminuten`, 'fahrzeug')
+      }
+    } catch {
+      if (f.fahrt === fahrt && f.status === 3) protokolliere(`${f.funkrufname}: Routing nicht verfügbar, verwende Standard-Anfahrtszeit`, 'warnung')
+    }
+  }))
 }
 function katalogMeldebildAuswaehlen(
   eintrag,
@@ -2255,48 +1807,10 @@ function katalogMeldebildAuswaehlen(
     return
   }
 
-  const stichwoerter =
-    leereStichwoerter()
-
-  let zielBereich = null
-
-  switch (eintrag.bereich) {
-    case 'B':
-      zielBereich = 'B'
-      break
-
-    case 'THL':
-      zielBereich = 'T'
-      break
-
-    case 'ABC':
-      zielBereich = 'ABC'
-      break
-
-    case 'RD':
-      zielBereich = 'R'
-      break
-
-    case 'SON':
-      zielBereich = 'SON'
-      break
-
-    case 'INF':
-      zielBereich = 'INF'
-      break
-  }
-
-  if (!zielBereich) {
-    alert(
-      'Dieses Meldebild kann noch keinem Bereich zugeordnet werden.',
-    )
-
-    return
-  }
-
-  stichwoerter[
-    zielBereich
-  ] = eintrag
+  const aufloesung = katalogStichwoerter(eintrag)
+  const stichwoerter = aufloesung.stichwoerter
+  einsatz.schlagwort = eintrag.kennung
+  einsatz.rdVerknuepfung = aufloesung.rdVerknuepfung
 
   einsatz.meldebildId =
     eintrag.id
@@ -2313,6 +1827,96 @@ function katalogMeldebildAuswaehlen(
     'einsatz',
   )
 }
+const kartenAnsicht = ref(null)
+const aktivesModul =
+  ref('einsatz')
+const notrufKategorie =
+  ref(null)
+
+
+function notrufKategorieAuswaehlen(
+  kategorieId,
+) {
+  notrufKategorie.value =
+    kategorieId
+}
+
+const leitstellenModule = [
+  { id: 'einsatzliste', name: 'Einsatzliste' },
+  {
+    id: 'einsatz',
+    name: 'Einsatzbearbeitung',
+  },
+  {
+    id: 'notruf',
+    name: 'Notrufannahme',
+  },
+  {
+    id: 'karte',
+    name: 'Karte',
+  },
+  {
+    id: 'fahrzeuge',
+    name: 'Fahrzeuge',
+  },
+  {
+    id: 'chronik',
+    name: 'Chronik',
+  },
+]
+
+
+const besuchteModule = ref(new Set(['einsatz']))
+const einsatzOeffnung = ref(0)
+function einsatzAusListeOeffnen(id) {
+  einsatzAuswaehlen(id)
+  einsatzOeffnung.value++
+  modulOeffnen('einsatz')
+}
+const ausgelagerteModule = ref({})
+const modulFensterRefs = new Map()
+const fensterMeldung = ref('')
+const tabZiehen = ref(null)
+const tabAuslagernBereit = ref(false)
+let klickUnterdruecken = false
+
+function modulOeffnen(modulId) {
+  besuchteModule.value.add(modulId)
+  aktivesModul.value = modulId
+  if (ausgelagerteModule.value[modulId]) modulFensterRefs.get(modulId)?.fokussieren()
+}
+function modulFensterStatus(modulId, extern) {
+  ausgelagerteModule.value[modulId] = extern
+  if (!extern) aktivesModul.value = modulId
+}
+async function modulAuslagern(modulId, position) {
+  fensterMeldung.value = ''
+  besuchteModule.value.add(modulId)
+  await nextTick()
+  modulFensterRefs.get(modulId)?.auslagern(position)
+}
+function tabPointerStart(event, modulId) {
+  if (event.button !== 0) return
+  tabZiehen.value = { modulId, clientX: event.clientX, clientY: event.clientY,
+    leiste: event.currentTarget.closest('nav').getBoundingClientRect() }
+  event.currentTarget.setPointerCapture(event.pointerId)
+}
+function tabPointerBewegen(event) {
+  tabAuslagernBereit.value = tabHerausgezogen(tabZiehen.value, event, tabZiehen.value?.leiste)
+}
+function tabPointerEnde(event) {
+  const start = tabZiehen.value
+  const herausgezogen = tabHerausgezogen(start, event, start?.leiste)
+  if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+  tabZiehen.value = null
+  tabAuslagernBereit.value = false
+  if (herausgezogen) {
+    klickUnterdruecken = true
+    void modulAuslagern(start.modulId, { screenX: event.screenX, screenY: event.screenY })
+    setTimeout(() => { klickUnterdruecken = false }, 0)
+  }
+}
+function tabKlick(modulId) { if (!klickUnterdruecken) modulOeffnen(modulId) }
 // --------------------------------------------------
 // STATUS
 // --------------------------------------------------
@@ -2320,38 +1924,191 @@ function katalogMeldebildAuswaehlen(
 </script>
 
 <template>
-<div class="leitstelle">
+<StartMenue v-if="!simulationGestartet" @starten="simulationStarten" />
+<div v-else class="leitstelle">
+  <div
+  v-if="neuesLayoutAktiv"
+  class="leitstellen-hauptansicht"
+>
+
+  <nav class="leitstellen-module" aria-label="Module">
+    <div v-for="modul in leitstellenModule" :key="modul.id" class="modul-tabgruppe">
+      <button type="button" class="leitstellen-modul"
+        :class="{ aktiv: aktivesModul === modul.id, ausgelagert: ausgelagerteModule[modul.id] }"
+        title="Zum Auslagern aus der Tab-Leiste ziehen oder doppelklicken"
+        @click="tabKlick(modul.id)" @dblclick="modulAuslagern(modul.id)"
+        @pointerdown="tabPointerStart($event, modul.id)" @pointermove="tabPointerBewegen"
+        @pointerup="tabPointerEnde" @pointercancel="tabZiehen = null; tabAuslagernBereit = false">
+        {{ modul.name }}{{ ausgelagerteModule[modul.id] ? ' ↗' : '' }}
+      </button>
+      <button type="button" class="modul-auslagern-button" :aria-label="modul.name + ' in eigenem Fenster öffnen'" title="In eigenem Fenster öffnen" @click="modulAuslagern(modul.id)">↗</button>
+    </div>
+    <label class="simulations-tempo">Tempo <select :value="simulationsFaktor" @change="geschwindigkeitAendern"><option v-for="faktor in simulationsGeschwindigkeiten" :key="faktor" :value="faktor">{{ faktor }}×</option></select></label>
+    <span class="modul-tab-hilfe">{{ new Date(simulationsZeit).toLocaleDateString('de-DE') }} · {{ uhrzeit }} · {{ einsatzFrequenz }} % · Tabs herausziehen oder ↗ klicken</span>
+  </nav>
+  <div v-if="fensterMeldung" class="fenster-meldung" role="alert">{{ fensterMeldung }} <button type="button" @click="fensterMeldung = ''">OK</button></div>
+  <div v-if="tabAuslagernBereit" class="tab-zieh-hinweis">Loslassen, um das Modul in einem eigenen Fenster zu öffnen.</div>
+  <div v-if="ausgelagerteModule[aktivesModul]" class="modul-ausgelagert-hinweis">
+    <strong>{{ leitstellenModule.find(m => m.id === aktivesModul)?.name }} ist in einem eigenen Fenster geöffnet.</strong>
+    <p>Das Fenster an seiner Titelleiste auf den gewünschten Bildschirm ziehen. Das Hauptfenster muss geöffnet bleiben.</p>
+    <div><button type="button" @click="modulFensterRefs.get(aktivesModul)?.fokussieren()">Fenster anzeigen</button>
+      <button type="button" @click="modulFensterRefs.get(aktivesModul)?.andocken()">Hier wieder anzeigen</button></div>
+  </div>
+  <template v-for="modul in leitstellenModule" :key="modul.id">
+    <ModulFenster v-if="besuchteModule.has(modul.id)" v-slot="{ extern }"
+      :ref="instanz => instanz ? modulFensterRefs.set(modul.id, instanz) : modulFensterRefs.delete(modul.id)"
+      :titel="modul.name" :aktiv="aktivesModul === modul.id"
+      @ausgelagert="modulFensterStatus(modul.id, $event)" @fehler="fensterMeldung = $event">
   <LeitstellenDesktop
-    v-if="neuesLayoutAktiv"
+    :leitstellen-hinweise="leitstellenHinweise"
+    @hinweis-entfernen="hinweisEntfernen(leitstellenHinweise, $event)"
+    @sprechwunsch-annehmen="sprechwunschUebernehmen"
+  
+    v-if="modul.id === 'einsatz'"
+    :notruf-aktiv="notrufDialog"
+    :einsatz-oeffnung="einsatzOeffnung"
+    :manuelle-erfassung-aktiv="manuelleErfassungAktiv"
+    v-model:manuelle-erfassung-daten="manuelleErfassungDaten"
+    @manuellen-einsatz-starten="manuelleErfassungStarten"
+    @manuellen-einsatz-abbrechen="manuelleErfassungAbbrechen"
+    @manuellen-einsatz-erstellen="einsatzAusErfassungErstellen('manuell')"
+    v-model:notruf-daten="notrufDaten"
+    :geocodierung-laeuft="geocodierungLaeuft"
+    @notruf-beenden="notrufBeenden"
+    @einsatz-erstellen="einsatzAusNotrufErstellen"
     :key="'leitstellen-desktop'"
     :einsaetze="einsaetze"
     :ausgewaehlter-einsatz-id="ausgewaehlterEinsatzId"
     :ausgewaehlter-einsatz="ausgewaehlterEinsatz"
     :fahrzeuge="fahrzeuge"
-    :ereignisse="ereignisse"
     :uhrzeit="uhrzeit"
+    :simulations-zeit="simulationsZeit"
     :ist-fahrzeug-deaktiviert="istFahrzeugDeaktiviert"
     @einsatz-auswaehlen="einsatzAuswaehlen"
     @fahrzeug-auswaehlen="fahrzeugAuswaehlen"
     @meldebild-auswaehlen="katalogMeldebildAuswaehlen"
+    @einsatz-notiz-aendern="einsatzNotizAendern"
+    @einsatz-dokumentation-aendern="einsatzDokumentationAendern"
+    @einsatz-dokumentation-uebernehmen="id => dokumentationUebernehmen(einsaetze.find(e => e.id === id), simulationsZeit)"
+    @bedarfstest-erstellen="bedarfstestErstellen"
+    @generatortest-erstellen="generatortestErstellen"
     @alarmieren="alarmieren"
     @auto-split="autoSplitEinsatz"
-    @schliessen="neuesLayoutAktiv = false"
     @vorschlag="vorschlagErzeugen"
   />
-    <header class="kopfzeile">
+ <EinsatzUebersicht v-else-if="modul.id === 'einsatzliste'"
+   :einsaetze="einsaetze" :fahrzeuge="fahrzeuge" :ausgewaehlter-einsatz-id="ausgewaehlterEinsatzId"
+   @einsatz-oeffnen="einsatzAusListeOeffnen" />
+ <NotrufModul
+  :funkgruppen="funkgruppen"
+  :aktive-funkgruppe-id="funk.aktiveGruppeId"
+  :funkteilnehmer-id="funk.teilnehmerId"
+  :vorbereitete-funkmeldung="funk.vorbereiteteMeldung"
+  @funkteilnehmer-auswaehlen="funkteilnehmerAuswaehlen"
+  :fahrzeuge="fahrzeuge"
+  @funkgruppe-auswaehlen="funkgruppeAuswaehlen"
+  @funkspruch-senden="funkspruchSenden"
+  @sprechwunsch-erzeugen="sprechwunschErzeugen"
+  v-else-if="
+    modul.id === 'notruf'
+  "
+
+  @einsatz-erfassen="modulOeffnen('einsatz')"
+  :aktive-kategorie="
+    notrufKategorie
+  "
+
+  :uhrzeit="uhrzeit"
+
+  :eingehender-notruf="
+    eingehenderNotruf
+  "
+
+  :klingel-dauer="
+    klingelDauer
+  "
+
+  :notruf-aktiv="
+    notrufDialog
+  "
+
+  :gespraech="
+    gespraech
+  "
+
+  @kategorie-auswaehlen="
+    notrufKategorieAuswaehlen
+  "
+
+  @notruf-annehmen="
+    notrufAnnehmen
+  "
+
+  @test-notruf="
+    testNotrufJetzt
+  "
+
+  @frage-senden="
+    frageAusKatalogSenden
+  "
+/>
+
+<section
+  v-else-if="
+    modul.id === 'karte'
+  "
+  class="karten-modul"
+>
+  <div class="karten-modul-kopf">
+    <span>
+      Lagekarte
+    </span>
+
+    <span class="karten-modul-status">
+      OpenStreetMap
+    </span>
+  </div>
+
+  <div class="karten-modul-inhalt">
+    <LeitstellenKarte
+      :key="extern ? 'karte-extern' : 'karte-intern'"
+      v-model:ansicht="kartenAnsicht"
+      :fahrzeuge="fahrzeuge"
+      :einsaetze="einsaetze"
+      :ausgewaehlter-einsatz-id="
+        ausgewaehlterEinsatzId
+      "
+      @einsatz-auswaehlen="
+        einsatzAuswaehlen
+      "
+    />
+  </div>
+</section>
+
+
+<FahrzeugTableau
+  v-else-if="modul.id === 'fahrzeuge'"
+  :fahrzeuge="fahrzeuge"
+/>
+
+
+<div v-else-if="modul.id === 'chronik'" class="chronik-modul">
+  <SystemChronik :ereignisse="ereignisse" />
+</div>
+    </ModulFenster>
+  </template>
+</div>
+    <header
+  v-if="!neuesLayoutAktiv"
+  class="kopfzeile"
+>
       <div>
         <h1>ILS SIMULATOR</h1>
         <span>Integrierte Leitstelle</span>
       </div>
 
       <div class="systemstatus">
-        <button
-  class="layoutwechsel-button"
-  @click="neuesLayoutAktiv = true"
->
-  🖥 ELS-Ansicht
-</button>
+  
   <button
     class="tonbutton"
     :class="{ aktiv: tonAktiv }"
@@ -2379,7 +2136,10 @@ function katalogMeldebildAuswaehlen(
 </div>
     </header>
 
-    <main class="arbeitsbereich">
+    <main
+  v-if="!neuesLayoutAktiv"
+  class="arbeitsbereich"
+>
 
   <SystemChronik
   :ereignisse="ereignisse"
@@ -2488,7 +2248,7 @@ function katalogMeldebildAuswaehlen(
     <!-- SIMULIERTER NOTRUF -->
 
     <div
-      v-if="notrufDialog"
+      v-if="notrufDialog && !neuesLayoutAktiv"
       class="dialog-hintergrund"
     >
       <div class="dialog notruf-dialog">
@@ -2518,7 +2278,7 @@ function katalogMeldebildAuswaehlen(
               class="chatfenster"
             >
               <div
-                v-for="nachricht in gespraech"
+                v-for="nachricht in telefonGespraech"
                 :key="nachricht.id"
                 class="nachricht"
                 :class="nachricht.rolle"

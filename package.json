@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "import-objekte": "node scripts/objekte/import-excel.js",
+    "import-osm": "node scripts/osm/import.js",
+    "setup-osm": "node scripts/osm/setup.js",
+    "test:osm": "node scripts/osm/import.js --test",
     "dev": "vite",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
@@ -29,6 +33,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-oxlint": "~1.82.0",
     "eslint-plugin-vue": "~10.11.0",
+    "exceljs": "^4.4.0",
     "jiti": "^2.7.0",
     "npm-run-all2": "^9.0.3",
     "oxlint": "~1.82.0",

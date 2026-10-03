@@ -6,10 +6,12 @@ import {
   watch,
 } from 'vue'
 
-import L from 'leaflet'
+import { leafletFuerFenster } from '../services/fensterLeaflet.js'
+import { fahrzeugAufKarteSichtbar } from '../data/fahrzeugVerwaltung.js'
 import 'leaflet/dist/leaflet.css'
 
 const props = defineProps({
+  ansicht: { type: Object, default: null },
   fahrzeuge: {
     type: Array,
     required: true,
@@ -27,10 +29,15 @@ const props = defineProps({
 })
 
 const emit = defineEmits([
+  'update:ansicht',
   'einsatz-auswaehlen',
 ])
 
 const kartenElement = ref(null)
+const kartenFehler = ref('')
+let L = null
+let beendet = false
+let groessenBeobachter = null
 
 let karte = null
 let fahrzeugEbene = null
@@ -152,7 +159,7 @@ function zeichneFahrzeuge() {
   fahrzeugEbene.clearLayers()
 
   props.fahrzeuge.forEach((fahrzeug) => {
-    if (!fahrzeug.position) {
+    if (!fahrzeugAufKarteSichtbar(fahrzeug)) {
       return
     }
 
@@ -299,24 +306,32 @@ function zentriereAufEinsatz() {
 // KARTE STARTEN
 // --------------------------------------------------
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    L = await leafletFuerFenster(kartenElement.value.ownerDocument.defaultView)
+  } catch {
+    if (!beendet) kartenFehler.value = 'Die Karte konnte nicht geladen werden. Bitte das Kartenmodul erneut öffnen.'
+    return
+  }
+  if (beendet) return
   karte = L.map(
     kartenElement.value,
     {
       zoomControl: true,
     },
   ).setView(
-    [49.0134, 12.1016],
-    13,
+    props.ansicht?.zentrum || [49.0134, 12.1016],
+    props.ansicht?.zoom ?? 13,
   )
 
   L.tileLayer(
-    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     {
       maxZoom: 19,
+      referrerPolicy: 'strict-origin-when-cross-origin',
 
       attribution:
-        '&copy; OpenStreetMap contributors',
+        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
     },
   ).addTo(karte)
 
@@ -330,9 +345,14 @@ onMounted(() => {
   zeichneEinsaetze()
   zeichneFahrzeuge()
 
-  setTimeout(() => {
-    karte.invalidateSize()
-  }, 100)
+  karte.on('moveend', () => {
+    const mitte = karte.getCenter()
+    emit('update:ansicht', { zentrum: [mitte.lat, mitte.lng], zoom: karte.getZoom() })
+  })
+  groessenBeobachter = new ResizeObserver(() => {
+    if (karte && kartenElement.value?.clientWidth && kartenElement.value?.clientHeight) karte.invalidateSize()
+  })
+  groessenBeobachter.observe(kartenElement.value)
 })
 
 // --------------------------------------------------
@@ -344,6 +364,7 @@ watch(
     props.fahrzeuge.map(
       (fahrzeug) => ({
         id: fahrzeug.id,
+        hatGps: fahrzeug.hatGps,
         status: fahrzeug.status,
 
         lat:
@@ -413,6 +434,8 @@ watch(
 // --------------------------------------------------
 
 onBeforeUnmount(() => {
+  beendet = true
+  groessenBeobachter?.disconnect()
   if (karte) {
     karte.remove()
     karte = null
@@ -422,6 +445,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="karten-wrapper">
+    <p v-if="kartenFehler" class="karten-fehler" role="alert">{{ kartenFehler }}</p>
     <div
       ref="kartenElement"
       class="karte"
@@ -477,14 +501,14 @@ onBeforeUnmount(() => {
   position: relative;
 
   width: 100%;
-  height: 430px;
+  height: 100%;
+  min-height: 0;
 
   overflow: hidden;
 
   border: 1px solid #354754;
-  border-radius: 5px;
+  box-sizing: border-box;
 }
-
 .karte {
   width: 100%;
   height: 100%;
@@ -574,5 +598,9 @@ onBeforeUnmount(() => {
   margin: 8px 0 !important;
 
   background: #41515c;
+}
+:host,
+.karten-wrapper {
+  display: block;
 }
 </style>

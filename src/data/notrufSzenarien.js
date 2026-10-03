@@ -1,6 +1,15 @@
 export const notrufSzenarien = [
   {
     id: 1,
+    notrufFakten: {
+      anruferPosition: 'vorOrt',
+      akutesProblem: 'Mein Vater hat sich plötzlich an den Kopf gefasst und ist zusammengebrochen.',
+      atmungAusreichend: true, reagiertNormal: false,
+      brustbeschwerden: null, kreislaufproblem: true, laehmung: null,
+      sprachstoerung: null, sehstoerung: null, starkerKopfschmerz: null,
+      halbseitigeGefuehlsstoerung: null, schwindelMitFallneigung: null, krampfanfall: false,
+      details: { atmungAusreichend: 'Ich sehe, dass sich sein Brustkorb bewegt.', reagiertNormal: 'Mein Vater reagiert überhaupt nicht auf mein Rufen.' },
+    },
     titel: 'Bewusstlose Person',
     startText:
       'Hallo? Bitte kommen Sie schnell! Mein Vater ist einfach zusammengebrochen!',
@@ -60,6 +69,13 @@ export const notrufSzenarien = [
 
   {
     id: 2,
+    notrufFakten: {
+      anruferPosition: 'vorOrt', akutesProblem: 'Mein Mann bekommt plötzlich ganz schlecht Luft.',
+      atmungAusreichend: false, reagiertNormal: true, brustbeschwerden: true,
+      kreislaufproblem: null, laehmung: null, sprachstoerung: null, sehstoerung: null,
+      starkerKopfschmerz: null, halbseitigeGefuehlsstoerung: null, schwindelMitFallneigung: null, krampfanfall: false,
+      details: { atmungAusreichend: 'Er atmet ganz schnell.', brustbeschwerden: 'Er beschreibt eher ein Engegefühl als richtigen Schmerz.' },
+    },
     titel: 'Atemnot',
     startText:
       'Hallo, mein Mann bekommt plötzlich ganz schlecht Luft. Können Sie bitte jemanden schicken?',
@@ -124,6 +140,13 @@ export const notrufSzenarien = [
 
   {
     id: 3,
+    notrufFakten: {
+      anruferPosition: 'selbst', akutesProblem: 'Seit ein paar Minuten habe ich starke Schmerzen in der Brust.',
+      atmungAusreichend: false, reagiertNormal: true, brustbeschwerden: true,
+      kreislaufproblem: null, laehmung: false, sprachstoerung: false, sehstoerung: false,
+      starkerKopfschmerz: false, halbseitigeGefuehlsstoerung: false, schwindelMitFallneigung: null, krampfanfall: false,
+      details: { atmungAusreichend: 'Ich bin kurzatmig.', brustbeschwerden: 'Es drückt hinter dem Brustbein und zieht in meinen linken Arm.' },
+    },
     titel: 'Brustschmerz',
     startText:
       'Guten Tag, ich habe seit ein paar Minuten starke Schmerzen in der Brust und mir ist komisch.',
@@ -308,6 +331,13 @@ export const notrufSzenarien = [
 
   {
     id: 6,
+    notrufFakten: {
+      anruferPosition: 'vorOrt', akutesProblem: 'Meine Mutter ist auf dem nassen Boden ausgerutscht und auf die Seite gefallen.',
+      atmungAusreichend: true, reagiertNormal: true, brustbeschwerden: false,
+      kreislaufproblem: null, laehmung: null, sprachstoerung: false, sehstoerung: null,
+      starkerKopfschmerz: null, halbseitigeGefuehlsstoerung: null, schwindelMitFallneigung: null, krampfanfall: false,
+      details: { reagiertNormal: 'Sie spricht mit mir und sagt, dass ihre Hüfte sehr weh tut.' },
+    },
     titel: 'Gestürzte Person',
     startText:
       'Hallo, meine Mutter ist im Badezimmer gestürzt und kommt nicht mehr hoch.',
@@ -372,6 +402,13 @@ export const notrufSzenarien = [
 
   {
     id: 7,
+    notrufFakten: {
+      anruferPosition: 'vorOrt', akutesProblem: 'Mein dreijähriger Sohn hat 40,1 Grad Fieber und ist sehr schläfrig.',
+      atmungAusreichend: true, reagiertNormal: false, brustbeschwerden: null,
+      kreislaufproblem: null, laehmung: null, sprachstoerung: null, sehstoerung: null,
+      starkerKopfschmerz: null, halbseitigeGefuehlsstoerung: null, schwindelMitFallneigung: null, krampfanfall: false,
+      details: { atmungAusreichend: 'Er atmet etwas schneller als sonst.', reagiertNormal: 'Er ist wach, aber sehr schläfrig und nicht wie sonst.' },
+    },
     titel: 'Kind mit Fieber',
     startText:
       'Hallo, mein Sohn hat sehr hohes Fieber und ist heute irgendwie ganz komisch.',

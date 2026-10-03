@@ -1,0 +1,9 @@
+# Fahrzeugtypen nach hochgeladener Richtlinie
+
+Quelle ist die vom Nutzer bereitgestellte Datei `id2_17c_03_03_npol_bos_funkrufnamen_20141106_stand_20150130.pdf`: Richtlinie vom 06.11.2014, Änderungsnachweis 30.01.2015. Der Katalog bildet diesen Dokumentstand ab; eine Aussage zur heutigen amtlichen Gültigkeit ist damit nicht verbunden.
+
+Die Typauswahl unter Adminbereich → Fahrzeuge enthält die Anlagen 2.1 bis 2.9 (PDF-Seiten 17–25), gruppiert nach deren Sachgebieten. Gleiche Einträge mehrerer Organisationen sind zusammengefasst. Varianten mit und ohne Rettungssatz, SEG-Fahrzeuge und Sonderausführungen sind getrennt wählbar. Die bereits verwendete Funktion ELRD aus Anlage 2.0 ist zusätzlich enthalten. Einrichtungen und übrige Führungsfunktionen aus Anlage 2.0 sind kein Fahrzeugkatalog. Funktionen/Trupps aus den Fahrzeuganlagen bleiben entsprechend bezeichnet enthalten.
+
+Die Suche berücksichtigt Kennzahl, Kurzbezeichnung und Langtext. Die Kurzlabels enthalten bei Bedarf unterscheidende Zusätze wie `-RS` oder `-SEG`; diese sind Auswahlbezeichnungen der Anwendung, keine vorgeschriebenen OPTA-Kurzzeichen. Kennzahl und Katalog-ID werden über den ausgewählten Datensatz erhalten. Der Funkrufname wird weiterhin separat eingegeben; es wird keine vollständige OPTA erzeugt.
+
+Bestehende Fahrzeuge mit freiem Typ können unverändert weiterbearbeitet oder einer Richtlinienvariante zugeordnet werden. Neue Fahrzeuge werden aus dem Katalog gewählt. Intern ordnet `simulationsTyp` kompatible Varianten den bisherigen groben Klassen zu, etwa HLF20 → HLF. Diese Zuordnung ist eine Simulationsvereinfachung und keine amtliche Aussage über Gleichwertigkeit. Spezielle Fähigkeiten, Kapazitäten, Organisationsbeschränkungen und die vollständige AAO folgen gesondert. Der bisherige Bereich bleibt RD/FW; Berg- und Wasserrettung haben noch keine eigene Dispositionslogik.
